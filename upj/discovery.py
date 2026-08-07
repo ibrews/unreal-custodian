@@ -119,27 +119,93 @@ def _walk_search(roots: list[Path], filename_suffix: str) -> list[Path]:
     return hits
 
 
+def _fixed_drives() -> list[Path]:
+    """Every fixed drive letter on Windows.
+
+    Engines and projects routinely live on a secondary drive -- the machine
+    this was tested against keeps all of its engines on H: -- so a default
+    root list built only from the user profile finds nothing.
+    """
+    drives = []
+    for letter in "CDEFGHIJKLMNOPQRSTUVWXYZ":
+        root = Path(f"{letter}:/")
+        if root.is_dir():
+            drives.append(root)
+    return drives
+
+
 def default_roots() -> list[Path]:
     """Reasonable places to look when no index is available."""
     home = Path.home()
+    if os.name == "nt":
+        # Slow, but correct. Everything is the fast path; this is the fallback
+        # that has to actually find things when it is absent.
+        return _fixed_drives()
     candidates = [
         home / "Documents" / "Unreal Projects",
         home / "Documents" / "Unreal Engine",
         Path("/Users/Shared"),
         home / "dev",
         home / "GH",
-        Path("D:/") if os.name == "nt" else None,
     ]
-    return [c for c in candidates if c is not None and c.is_dir()]
+    return [c for c in candidates if c.is_dir()]
+
+
+def _launcher_manifests() -> list[Path]:
+    """Where the Epic Games Launcher records what it installed."""
+    if os.name == "nt":
+        return [Path("C:/ProgramData/Epic/UnrealEngineLauncher/LauncherInstalled.dat")]
+    return [
+        Path("/Users/Shared/Epic/UnrealEngineLauncher/LauncherInstalled.dat"),
+        Path.home()
+        / "Library/Application Support/Epic/UnrealEngineLauncher/LauncherInstalled.dat",
+    ]
+
+
+def _launcher_engine_roots() -> list[Path]:
+    """Engine locations straight from the launcher's own manifest.
+
+    Authoritative and instant, where searching for Build.version is neither --
+    it misses any engine on a drive the search roots do not cover.
+    """
+    roots: list[Path] = []
+    for manifest in _launcher_manifests():
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for entry in data.get("InstallationList", []):
+            location = entry.get("InstallLocation")
+            if location:
+                roots.append(Path(location))
+    return roots
+
+
+def _engine_from_root(engine_root: Path) -> EngineInstall | None:
+    manifest = engine_root / "Engine" / "Build" / "Build.version"
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    version = ".".join(
+        str(data.get(k, 0)) for k in ("MajorVersion", "MinorVersion", "PatchVersion")
+    )
+    return EngineInstall(root=engine_root, version=version)
 
 
 def find_engine_installs(roots: list[Path] | None = None) -> list[EngineInstall]:
-    """Locate engine installs by their Build.version manifest."""
+    """Locate engine installs, launcher manifest first, then by searching."""
+    installs: dict[Path, EngineInstall] = {}
+    for engine_root in _launcher_engine_roots():
+        engine = _engine_from_root(engine_root)
+        if engine:
+            installs[engine.root] = engine
+
+    # Source builds and manually-installed engines are not in the manifest.
     found = _index_search("Build.version")
     if found is None:
         found = _walk_search(roots or default_roots(), "Build.version")
 
-    installs: dict[Path, EngineInstall] = {}
     for manifest in found:
         # .../<EngineRoot>/Engine/Build/Build.version
         try:
