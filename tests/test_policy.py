@@ -162,20 +162,16 @@ def test_unknown_target_key_is_rejected_loudly(project: Path) -> None:
         policy_mod.load_policy(project)
 
 
-def test_unwritable_directory_is_skipped_with_the_owner_named(project: Path, monkeypatch) -> None:
-    """Projects copied from another machine are often owned by a different uid."""
-    import os as _os
+def test_unwritable_directory_is_skipped_not_attempted(project: Path, monkeypatch) -> None:
+    """Projects copied from another machine are routinely owned by someone else.
 
-    real_access = _os.access
+    Windows has no getuid(), so the owner hint must be optional -- reaching for
+    it unconditionally crashed the whole scan there.
+    """
     blocked = project / "Intermediate"
-
-    def fake_access(path, mode, **kw):
-        if str(path) == str(blocked):
-            return False
-        return real_access(path, mode, **kw)
-
-    monkeypatch.setattr(policy_mod.os, "access", fake_access)
-    monkeypatch.setattr(policy_mod.os, "getuid", lambda: 999)
+    monkeypatch.setattr(
+        policy_mod, "_is_writable", lambda d: str(d) != str(blocked)
+    )
 
     resolution = policy_mod.resolve_targets(
         project, policy_mod.DEFAULT_POLICY, is_cpp=False, age_days=9999
@@ -183,4 +179,12 @@ def test_unwritable_directory_is_skipped_with_the_owner_named(project: Path, mon
     assert not any(p == blocked for _, p in resolution.targets)
     reasons = {p: reason for p, reason in resolution.skipped}
     assert blocked in reasons
-    assert "uid" in reasons[blocked]
+    assert "not writable" in reasons[blocked]
+    # Everything else in the project is still planned.
+    assert any(p.name == "DerivedDataCache" for _, p in resolution.targets)
+
+
+def test_owner_hint_is_optional(project: Path, monkeypatch) -> None:
+    """No getuid() (Windows) must degrade to no hint, never an AttributeError."""
+    monkeypatch.delattr(policy_mod.os, "getuid", raising=False)
+    assert policy_mod._owner_hint(project) == ""

@@ -220,15 +220,43 @@ def _not_writable_reason(path: Path) -> str | None:
     # Removing a directory requires write permission on its parent (to unlink
     # the entry) and on the directory itself (to empty it).
     for probe in (path.parent, path):
-        if not os.access(probe, os.W_OK | os.X_OK):
-            try:
-                owner = probe.stat().st_uid
-            except OSError:
-                return "not writable by this user"
-            if owner != os.getuid():
-                return f"owned by uid {owner}, not writable by you"
-            return "not writable by this user"
+        if _is_writable(probe):
+            continue
+        return f"not writable by you{_owner_hint(probe)}"
     return None
+
+
+def _is_writable(directory: Path) -> bool:
+    """Can this process actually create and remove entries in `directory`?
+
+    On POSIX `os.access` answers this correctly. On Windows it does not -- it
+    reports success for any directory without the read-only attribute set,
+    ignoring ACLs entirely -- so the only reliable answer there is to try.
+    """
+    if os.name != "nt":
+        return os.access(directory, os.W_OK | os.X_OK)
+
+    probe = directory / ".upj-write-probe"
+    try:
+        probe.touch(exist_ok=False)
+    except OSError:
+        return False
+    try:
+        probe.unlink()
+    except OSError:
+        pass
+    return True
+
+
+def _owner_hint(directory: Path) -> str:
+    """" (owned by uid N)" where the platform has such a concept."""
+    if not hasattr(os, "getuid"):  # Windows
+        return ""
+    try:
+        owner = directory.stat().st_uid
+    except OSError:
+        return ""
+    return f" (owned by uid {owner})" if owner != os.getuid() else ""
 
 
 def resolve_targets(
