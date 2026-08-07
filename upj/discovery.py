@@ -41,7 +41,12 @@ _PRUNE_DIRS = {
 # rather than user-authored. Matching components rather than substrings matters:
 # a user whose projects live in "D:/UnrealEngine Projects" must not have their
 # entire library filtered out because the string "engine" appears in the path.
-_EXCLUDE_COMPONENTS = {"templates", "samples", "appdata"}
+#
+# "appdata" was here too, inherited as a heuristic for skipping launcher caches.
+# It is gone: every path under a Windows temp directory contains an AppData
+# component, so it silently excluded far more than intended, and engine-root
+# exclusion already covers the case it was meant to catch.
+_EXCLUDE_COMPONENTS = {"templates", "samples"}
 
 
 @dataclass(frozen=True)
@@ -229,11 +234,24 @@ def _engine_from_root(engine_root: Path) -> EngineInstall | None:
     version = ".".join(
         str(data.get(k, 0)) for k in ("MajorVersion", "MinorVersion", "PatchVersion")
     )
+    if not _is_engine_install(engine_root):
+        return None
     return EngineInstall(
         root=engine_root,
         version=version,
         installed_build=_is_installed_build(engine_root),
     )
+
+
+def _is_engine_install(engine_root: Path) -> bool:
+    """Distinguish an engine install from a packaged game that embeds one.
+
+    A shipped build carries Engine/Build/Build.version and Engine/Content but
+    none of the machinery to build with -- so scanning for Build.version alone
+    reports every packaged game, and every Fortnite install, as an engine.
+    """
+    engine = engine_root / "Engine"
+    return (engine / "Source").is_dir() or (engine / "Build" / "BatchFiles").is_dir()
 
 
 def _is_installed_build(engine_root: Path) -> bool:
@@ -277,6 +295,8 @@ def find_engine_installs(roots: list[Path] | None = None) -> list[EngineInstall]
         version = ".".join(
             str(data.get(k, 0)) for k in ("MajorVersion", "MinorVersion", "PatchVersion")
         )
+        if not _is_engine_install(engine_root):
+            continue
         installs.setdefault(
             engine_root,
             EngineInstall(

@@ -16,6 +16,9 @@ from upj import discovery  # noqa: E402
 def make_engine(root: Path, major: int, minor: int, patch: int = 0) -> Path:
     build = root / "Engine" / "Build"
     build.mkdir(parents=True)
+    # Without build machinery this is a packaged game, not an engine.
+    (build / "BatchFiles").mkdir()
+    (root / "Engine" / "Source").mkdir()
     (build / "Build.version").write_text(
         json.dumps({"MajorVersion": major, "MinorVersion": minor, "PatchVersion": patch}),
         encoding="utf-8",
