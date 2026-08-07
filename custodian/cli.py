@@ -1,8 +1,8 @@
 """Command line entry point.
 
-    upj report              inventory every project and what it is holding
-    upj clean               show exactly what would be reclaimed (default: dry run)
-    upj clean --apply       actually reclaim it, to the Trash / Recycle Bin
+    custodian report              inventory every project and what it is holding
+    custodian clean               show exactly what would be reclaimed (default: dry run)
+    custodian clean --apply       actually reclaim it, to the Trash / Recycle Bin
 """
 
 from __future__ import annotations
@@ -177,7 +177,7 @@ def cmd_report(args: argparse.Namespace) -> int:
     print()
     print(f"TOTAL RECLAIMABLE: {human(total)}")
     print(f"FREE ON THIS VOLUME: {human(free)}")
-    print("\nNothing was deleted. `upj clean` shows what a cleanup would remove.")
+    print("\nNothing was deleted. `custodian clean` shows what a cleanup would remove.")
     return 0
 
 
@@ -260,7 +260,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="upj", description="Find and reclaim regeneratable Unreal Engine build caches."
+        prog="custodian", description="Find and reclaim regeneratable Unreal Engine build caches."
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="suppress progress output")
     sub = parser.add_subparsers(dest="command", required=True)

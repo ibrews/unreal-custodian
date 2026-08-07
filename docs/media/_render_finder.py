@@ -5,7 +5,7 @@ Usage:
 
 Takes an unretouched `screencapture` of a Finder window (finder_before_raw.png,
 finder_after_raw.png) and overlays the tool's actual plan on top: which rows go,
-which shrink, which are untouched, with the real byte counts from `upj clean`.
+which shrink, which are untouched, with the real byte counts from `custodian clean`.
 
 The underlying screenshots are genuine -- only the highlight bars and labels are
 drawn -- so the reader is looking at their own Finder, not a mock-up of one.
@@ -31,7 +31,7 @@ LABEL_X = IMG_W + 16
 
 GONE, PARTIAL, KEPT = "gone", "partial", "kept"
 
-# Row order as Finder sorts it, with the verdict from `upj clean --only GASP57`.
+# Row order as Finder sorts it, with the verdict from `custodian clean --only GASP57`.
 BEFORE_ROWS = [
     ("Binaries", GONE, "894 KB"),
     ("Build", GONE, "707 B"),

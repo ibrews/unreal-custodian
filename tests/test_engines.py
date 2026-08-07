@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from upj import discovery, policy as policy_mod  # noqa: E402
+from custodian import discovery, policy as policy_mod  # noqa: E402
 
 ALL_KEYS = frozenset(t.key for t in policy_mod.ENGINE_TARGETS)
 

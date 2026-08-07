@@ -1,5 +1,5 @@
 [project]
-name = "unreal-project-janitor"
+name = "unreal-custodian"
 version = "0.1.0"
 description = "Find and reclaim regeneratable Unreal Engine build caches."
 readme = "README.md"
@@ -12,14 +12,14 @@ dependencies = []
 dev = ["pytest"]
 
 [project.scripts]
-upj = "upj.cli:main"
+custodian = "custodian.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/ibrews/unreal-project-janitor"
+Homepage = "https://github.com/ibrews/unreal-custodian"
 
 [build-system]
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["upj"]
+packages = ["custodian"]

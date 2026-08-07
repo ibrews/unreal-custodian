@@ -331,7 +331,7 @@ def _is_writable(directory: Path) -> bool:
     if os.name != "nt":
         return os.access(directory, os.W_OK | os.X_OK)
 
-    probe = directory / ".upj-write-probe"
+    probe = directory / ".custodian-write-probe"
     try:
         probe.touch(exist_ok=False)
     except OSError:

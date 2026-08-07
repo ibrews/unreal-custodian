@@ -2,7 +2,7 @@
 
 The guard's first implementation matched the substring "unreal" anywhere in a
 command line, which meant the tool's own shell invocation -- run from a
-directory named unreal-project-janitor, with the project path in argv --
+directory named unreal-custodian, with the project path in argv --
 looked exactly like a running editor. It refused to clean a project that no
 editor had open. These tests pin the distinction.
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from upj import safedelete  # noqa: E402
+from custodian import safedelete  # noqa: E402
 
 EDITOR = (
     "/Users/Shared/Epic Games/UE_5.8/Engine/Binaries/Mac/UnrealEditor.app/"

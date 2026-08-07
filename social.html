@@ -1,0 +1,70 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{width:1200px;height:630px;overflow:hidden;
+       background:radial-gradient(1100px 640px at 82% -10%,#17303f 0%,#0d1117 58%);
+       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif;
+       color:#e6edf3;display:flex;align-items:center;gap:44px;padding:0 58px}
+  .left{width:492px;flex:none}
+  .kicker{font-size:14px;font-weight:700;letter-spacing:2.4px;text-transform:uppercase;
+          color:#58a6ff;margin-bottom:16px}
+  h1{font-size:62px;line-height:1.02;font-weight:800;letter-spacing:-1.6px;margin-bottom:18px}
+  h1 em{font-style:normal;color:#3fb950}
+  .tag{font-size:20px;line-height:1.45;color:#a9b4c0;margin-bottom:30px}
+  .stats{display:flex;gap:10px;flex-wrap:wrap}
+  .stat{background:rgba(63,185,80,.10);border:1px solid rgba(63,185,80,.34);
+        border-radius:9px;padding:9px 13px}
+  .stat b{display:block;font-size:21px;color:#3fb950;letter-spacing:-.4px}
+  .stat span{font-size:12px;color:#8b949e}
+  .stat.warn{background:rgba(248,81,73,.10);border-color:rgba(248,81,73,.34)}
+  .stat.warn b{color:#f85149}
+
+  .term{flex:1;background:#161b22;border:1px solid #30363d;border-radius:12px;
+        box-shadow:0 22px 54px rgba(0,0,0,.6);overflow:hidden}
+  .bar{background:#21262d;padding:10px 14px;display:flex;align-items:center;gap:7px;
+       border-bottom:1px solid #30363d}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .title{color:#8b949e;font-size:12px;margin-left:10px;font-weight:500}
+  pre{padding:16px 18px;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:13px;
+      line-height:1.62;color:#c9d1d9;white-space:pre}
+  .b{color:#58a6ff;font-weight:700}.g{color:#3fb950;font-weight:700}
+  .r{color:#f85149;font-weight:700}.y{color:#d29922}.d{color:#6e7681}
+</style>
+
+<div class="left">
+  <div class="kicker">Unreal Engine · disk hygiene</div>
+  <h1>Unreal<br>Custodian</h1>
+  <div class="tag">Reclaim the <em>Intermediate</em>, <em>Binaries</em> and cache folders your Unreal projects and engines have been quietly hoarding — without touching a thing you authored.</div>
+  <div class="stats">
+    <div class="stat warn"><b>2.0&nbsp;TB</b><span>found on one machine</span></div>
+    <div class="stat"><b>539</b><span>projects scanned</span></div>
+    <div class="stat"><b>0</b><span>authored files touched</span></div>
+  </div>
+</div>
+
+<div class="term">
+  <div class="bar">
+    <span class="dot" style="background:#ff5f56"></span>
+    <span class="dot" style="background:#ffbd2e"></span>
+    <span class="dot" style="background:#27c93f"></span>
+    <span class="title">custodian report</span>
+  </div>
+<pre><span class="b">Found 14 engine install(s), 539 project(s).</span>
+
+<span class="d">PROJECT              RECLAIM     AGE  KIND</span>
+FSLA_General_V02       <span class="r">24.8G</span>  1,230d  C++
+FourSeasons01           <span class="r">6.5G</span>  1,304d  BP
+metahumanVR             <span class="r">5.0G</span>    494d  C++
+MetaHumans              <span class="r">1.9G</span>  1,705d  BP
+VRFramework             <span class="r">1.6G</span>  2,001d  BP
+
+<span class="d">ENGINE INSTALLS</span>
+UE 5.5.3 <span class="d">(source)</span>     <span class="r">74.6G</span>  G:\GitHub\UnrealEngine
+UE 5.4.4 <span class="d">(source)</span>     <span class="r">71.6G</span>  F:\..\UE_5.4_Source
+UE 5.6.1 <span class="d">(installed)</span>   <span class="y">1.3G</span>  <span class="d">Binaries protected</span>
+
+<span class="g">TOTAL RECLAIMABLE: 2.0T</span>
+<span class="y">FREE ON THIS VOLUME: 17.3G</span>
+<span class="d">Nothing was deleted.</span></pre>
+</div>

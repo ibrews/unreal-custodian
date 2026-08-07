@@ -131,7 +131,7 @@ def main() -> None:
     cap = pathlib.Path(sys.argv[1])
     read = lambda n: (cap / n).read_text(encoding="utf-8")  # noqa: E731
 
-    shoot("report", win("upj report", color_report(read("hero.txt"))), 1240, 1010)
+    shoot("report", win("custodian report", color_report(read("hero.txt"))), 1240, 1010)
 
     before_after = (
         '<div class="row">'
@@ -140,7 +140,7 @@ def main() -> None:
         f'<div><h3>After<span class="tag ta">359 MB</span></h3>'
         f'{win("~/ue/ThirdPersonClass", color_du(read("folder_after.txt")))}</div>'
         "</div>"
-    ) + win("upj clean --apply", color_apply(read("apply.txt")))
+    ) + win("custodian clean --apply", color_apply(read("apply.txt")))
     shoot("before-after", before_after, 1240, 700)
 
 

@@ -1,4 +1,4 @@
-# Unreal Project Janitor
+# Unreal Custodian
 
 Find and reclaim the regeneratable build caches that Unreal Engine projects accumulate — `Intermediate`, `Binaries`, `DerivedDataCache`, cooked content and staged builds — across every project on your machine, without touching anything you authored.
 
@@ -13,11 +13,11 @@ The Windows box had six source-built engines holding 60–75 GB each, and 17 GB 
 
 Epic themselves agree these folders are junk: Fab's 15 GB submission limit is specified *excluding* `Saved` and `Intermediate`.
 
-![upj report](docs/media/report.png)
+![custodian report](docs/media/report.png)
 
 ## Before and after
 
-Here is a real project in Finder, with the actual cleanup plan drawn on top — `upj` tells you exactly which folders go, which shrink, and which it will not touch, before it touches anything. `GASP57`, 7.4 GB down to 5.1 GB:
+Here is a real project in Finder, with the actual cleanup plan drawn on top — `custodian` tells you exactly which folders go, which shrink, and which it will not touch, before it touches anything. `GASP57`, 7.4 GB down to 5.1 GB:
 
 ![Finder before and after](docs/media/finder-before-after.png)
 
@@ -32,20 +32,20 @@ A second project, `ThirdPersonClass`, where the caches dominated — 8.7 GB down
 Requires Python 3.9+. No dependencies for the CLI.
 
 ```bash
-git clone https://github.com/ibrews/unreal-project-janitor.git
-cd unreal-project-janitor
-python3 -m upj.cli report
+git clone https://github.com/ibrews/unreal-custodian.git
+cd unreal-custodian
+python3 -m custodian.cli report
 ```
 
 On Windows, install [Everything](https://www.voidtools.com/downloads/#cli) and put `es.exe` on your `PATH` (or beside this README) for instant project discovery. On macOS, Spotlight is used and there is nothing to install. Without either, a slower filesystem walk is used as a fallback.
 
 ## Things to Try
 
-1. **See what you're sitting on.** `python3 -m upj.cli report` — inventories every Unreal project and engine install on the machine and prints total reclaimable bytes. Nothing is deleted; there is no flag that makes `report` destructive.
-2. **Find out what it would cost you to reclaim it.** `python3 -m upj.cli report --detail` — breaks each project down by directory and states what you pay to get each one back ("full rebuild", "re-cooked on next package", "UNRECOVERABLE if it held post-crash work").
-3. **Preview a real cleanup.** `python3 -m upj.cli clean --ignore-pressure` — prints the exact directories that would be removed. `clean` is a dry run unless you pass `--apply`.
+1. **See what you're sitting on.** `python3 -m custodian.cli report` — inventories every Unreal project and engine install on the machine and prints total reclaimable bytes. Nothing is deleted; there is no flag that makes `report` destructive.
+2. **Find out what it would cost you to reclaim it.** `python3 -m custodian.cli report --detail` — breaks each project down by directory and states what you pay to get each one back ("full rebuild", "re-cooked on next package", "UNRECOVERABLE if it held post-crash work").
+3. **Preview a real cleanup.** `python3 -m custodian.cli clean --ignore-pressure` — prints the exact directories that would be removed. `clean` is a dry run unless you pass `--apply`.
 4. **Protect a project you're about to return to.** Drop a `.ueclean.json` next to its `.uproject` containing `{"enabled": false}`, then re-run step 3 and watch it drop out of the plan with an "opted out" note.
-5. **Actually reclaim it.** `python3 -m upj.cli clean --apply` — everything goes to the Trash or Recycle Bin, not `rm -rf`, so a policy you disagree with costs you a drag-and-drop rather than a rebuild. Add `--permanent` once you trust it, which skips the bin and frees the space immediately.
+5. **Actually reclaim it.** `python3 -m custodian.cli clean --apply` — everything goes to the Trash or Recycle Bin, not `rm -rf`, so a policy you disagree with costs you a drag-and-drop rather than a rebuild. Add `--permanent` once you trust it, which skips the bin and frees the space immediately.
 
 ## How it decides
 
@@ -74,12 +74,12 @@ One source engine was holding **146.8 GB** of rebuildable output — nearly doub
 
 **The distinction that matters:** in a launcher install, `Engine/Binaries` *is* the engine. It was shipped precompiled, nothing on your machine can rebuild it, and deleting it turns a 55 GB install into a re-download. In a source build the same directory is genuine build output.
 
-`upj` tells them apart by the marker UnrealBuildTool leaves behind — `InstalledBuild.txt` versus `SourceDistribution.txt` — and enforces the rule in code rather than trusting a flag. An engine with neither marker is treated as installed, because guessing wrong in that direction is the expensive mistake.
+`custodian` tells them apart by the marker UnrealBuildTool leaves behind — `InstalledBuild.txt` versus `SourceDistribution.txt` — and enforces the rule in code rather than trusting a flag. An engine with neither marker is treated as installed, because guessing wrong in that direction is the expensive mistake.
 
 Engine caches and logs are reclaimed by default on both kinds. The big two are opt-in even on a source build, because reclaiming tens of gigabytes costs you a multi-hour engine rebuild:
 
 ```bash
-python3 -m upj.cli report --engine-rebuildable
+python3 -m custodian.cli report --engine-rebuildable
 ```
 
 ## What is never deleted
@@ -109,7 +109,7 @@ An unrecognized key in `targets` is a hard error rather than a silent no-op, so 
 ## The GUI
 
 ```bash
-python3 -m upj.gui
+python3 -m custodian.gui
 ```
 
 Sortable table of every project with its reclaimable size, last-touched date, engine version and eligibility; engine installs below; double-click to launch. The Trash/permanent choice is a checkbox, and "Never clean this" writes the `.ueclean.json` opt-out for you.
@@ -121,7 +121,7 @@ Note the GUI needs a Python built with `tkinter`. The CLI has no such requiremen
 The launcher GUI is deliberately *not* where automatic deletion lives. The GUI is open precisely when you are about to open a project — the worst possible moment to be clearing its build cache. Run the CLI from `launchd` (macOS) or Task Scheduler (Windows) instead, when nobody is working:
 
 ```bash
-python3 -m upj.cli clean --apply
+python3 -m custodian.cli clean --apply
 ```
 
 With the default pressure threshold this is a no-op on a healthy disk and only acts when space is genuinely short.

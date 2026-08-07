@@ -1,7 +1,7 @@
 """Desktop UI for reviewing and reclaiming Unreal project caches.
 
 Layout follows Marshall's (@nocxr) Unreal Project Launcher -- projects above,
-engine installs below, double-click to launch -- with the janitor's size,
+engine installs below, double-click to launch -- with the custodian's size,
 freshness and policy columns added.
 
 One structural difference matters: the original scanned on the Tk main thread,
@@ -29,10 +29,10 @@ from .sizing import ProjectReport, free_bytes, human, scan_project
 GB = 1024**3
 
 
-class JanitorApp:
+class CustodianApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        root.title("Unreal Project Janitor")
+        root.title("Unreal Custodian")
         root.geometry("1180x760")
         root.minsize(900, 560)
 
@@ -399,7 +399,7 @@ class JanitorApp:
 
 def main() -> int:
     root = tk.Tk()
-    JanitorApp(root)
+    CustodianApp(root)
     root.mainloop()
     return 0
 

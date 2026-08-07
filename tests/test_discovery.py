@@ -10,7 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from upj import discovery  # noqa: E402
+from custodian import discovery  # noqa: E402
 
 
 def make_engine(root: Path, major: int, minor: int, patch: int = 0) -> Path:

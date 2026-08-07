@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from upj import policy as policy_mod  # noqa: E402
+from custodian import policy as policy_mod  # noqa: E402
 
 
 @pytest.fixture()
