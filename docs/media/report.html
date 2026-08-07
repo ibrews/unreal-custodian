@@ -1,0 +1,46 @@
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0d1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px}
+.win{background:#161b22;border:1px solid #30363d;border-radius:10px;overflow:hidden;
+     box-shadow:0 12px 32px rgba(0,0,0,.5);margin-bottom:20px}
+.bar{background:#21262d;padding:9px 13px;display:flex;align-items:center;gap:7px;border-bottom:1px solid #30363d}
+.dot{width:11px;height:11px;border-radius:50%}
+.t{color:#8b949e;font-size:12px;margin-left:9px;font-weight:500}
+pre{margin:0;padding:15px 18px;color:#c9d1d9;font-family:'SF Mono',Menlo,Consolas,monospace;
+    font-size:12.5px;line-height:1.5;white-space:pre}
+.g{color:#3fb950;font-weight:600}.r{color:#f85149;font-weight:600}.y{color:#d29922}
+.b{color:#58a6ff;font-weight:600}.d{color:#6e7681}.w{color:#e6edf3;font-weight:600}
+.row{display:flex;gap:20px;align-items:flex-start}.row>div{flex:1;min-width:0}
+h3{color:#e6edf3;font-size:13px;margin:0 0 8px 2px;letter-spacing:.4px;text-transform:uppercase}
+h3 .tag{font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;text-transform:none;letter-spacing:0}
+.tb{background:#3d1d1d;color:#f85149}.ta{background:#12301c;color:#3fb950}
+</style><div style='width:1180px'><div class="win"><div class="bar"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="t">upj report</span></div><pre><span class="b">Found 2 engine install(s), 96 project(s).</span>
+<span class="b">  UE 5.8.1     /Users/Shared/Epic Games/UE_5.8</span>
+<span class="b">  UE 5.6.1     /Users/Shared/GH/UnrealEngineVisionOS</span>
+<span class="b">Measuring... (directory sizing is the slow part)</span>
+
+<span class="d">PROJECT                                  RECLAIM      AGE  KIND  NOTES</span>
+<span class="d">----------------------------------------------------------------------</span>
+FSLA_SPH_56                                31.7G       3d  <span class='w'>BP  </span><span class='d'>  too recent (&lt;14d)</span>
+GH/My_Project                              17.1G       6d  <span class='w'>C++  </span><span class='d'> too recent (&lt;14d); Binaries kept (C++ rebuild cost); skipped Intermediate (symlink resolves outside the project)</span>
+ACCVR24                                     6.2G      41d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
+GH/URKLiveLinkDemo                          3.7G       0d  <span class='w'>BP  </span><span class='d'>  too recent (&lt;14d)</span>
+ecab57                                      3.6G      39d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
+MindTheGap_56                               2.8G     365d  BP    
+GASP57                                      2.2G     111d  BP    
+GameAnimationSample_5.7/GameAnimationS      1.4G     148d  BP    
+GH/VisionProTemplate                        1.3G      57d  BP    
+GH/VisionProTemplate                      952.2M      52d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
+ue/vr57                                   792.2M      29d  BP    
+ECABridge-Build-5.7-skeletal/HostProje    708.7M        -  <span class='w'>BP  </span><span class='d'>  too recent (&lt;14d)</span>
+fp57                                      640.0M     317d  BP    
+MCP58_test1                               594.2M      38d  BP    
+ue/VisionProTemplate                      478.9M      60d  BP    
+GH/URKLiveLinkDemo                        393.5M       9d  <span class='w'>BP  </span><span class='d'>  too recent (&lt;14d)</span>
+VisionHack_55                             348.6M     170d  BP    
+ue/HalcyonVR                              326.4M     423d  BP    
+ue/VisionProTemplate                      301.7M     170d  BP    
+<span class="g">TOTAL RECLAIMABLE: 77.2G</span>
+<span class="y">FREE ON THIS VOLUME: 59.8G</span>
+
+<span class="d">Nothing was deleted. `upj clean` shows what a cleanup would remove.</span></pre></div></div>

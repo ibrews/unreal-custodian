@@ -1,0 +1,49 @@
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#0d1117;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:24px}
+.win{background:#161b22;border:1px solid #30363d;border-radius:10px;overflow:hidden;
+     box-shadow:0 12px 32px rgba(0,0,0,.5);margin-bottom:20px}
+.bar{background:#21262d;padding:9px 13px;display:flex;align-items:center;gap:7px;border-bottom:1px solid #30363d}
+.dot{width:11px;height:11px;border-radius:50%}
+.t{color:#8b949e;font-size:12px;margin-left:9px;font-weight:500}
+pre{margin:0;padding:15px 18px;color:#c9d1d9;font-family:'SF Mono',Menlo,Consolas,monospace;
+    font-size:12.5px;line-height:1.5;white-space:pre}
+.g{color:#3fb950;font-weight:600}.r{color:#f85149;font-weight:600}.y{color:#d29922}
+.b{color:#58a6ff;font-weight:600}.d{color:#6e7681}.w{color:#e6edf3;font-weight:600}
+.row{display:flex;gap:20px;align-items:flex-start}.row>div{flex:1;min-width:0}
+h3{color:#e6edf3;font-size:13px;margin:0 0 8px 2px;letter-spacing:.4px;text-transform:uppercase}
+h3 .tag{font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;text-transform:none;letter-spacing:0}
+.tb{background:#3d1d1d;color:#f85149}.ta{background:#12301c;color:#3fb950}
+</style><div style='width:1180px'><div class="row"><div><h3>Before<span class="tag tb">8.7 GB</span></h3><div class="win"><div class="bar"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="t">~/ue/ThirdPersonClass</span></div><pre><span class="b">$ du -sh ~/ue/ThirdPersonClass/*</span>
+<span class="r">972K	  Binaries</span>
+<span class="g"> 88K	  Config</span>
+<span class="g">148M	  Content</span>
+<span class="r">1.6M	  DerivedDataCache</span>
+<span class="r">628M	  Intermediate</span>
+<span class="y">7.8G	  Plugins</span>
+<span class="g">8.0K	  README.md</span>
+<span class="g"> 11M	  Saved</span>
+<span class="g">4.0K	  ThirdPersonClass.uproject</span>
+<span class="b">$ du -sh ~/ue/ThirdPersonClass</span>
+<span class="w">8.7G	  TOTAL</span></pre></div></div><div><h3>After<span class="tag ta">359 MB</span></h3><div class="win"><div class="bar"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="t">~/ue/ThirdPersonClass</span></div><pre><span class="b">$ du -sh ~/ue/ThirdPersonClass/*</span>
+<span class="g"> 88K	  Config</span>
+<span class="g">148M	  Content</span>
+<span class="y">120M	  Plugins</span>
+<span class="g">8.0K	  README.md</span>
+<span class="g"> 11M	  Saved</span>
+<span class="g">4.0K	  ThirdPersonClass.uproject</span>
+<span class="b">$ du -sh ~/ue/ThirdPersonClass</span>
+<span class="w">359M	  TOTAL</span></pre></div></div></div><div class="win"><div class="bar"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="t">upj clean --apply</span></div><pre>
+<span class="b">Reclaiming to the Trash / Recycle Bin from 1 project(s):</span>
+
+  ThirdPersonClass  (8.3G)
+<span class="r">           5.7G  Plugins/AgentIntegrationKit/Intermediate</span>
+<span class="r">           1.7G  Plugins/AgentIntegrationKit/Binaries</span>
+<span class="r">         605.4M  Intermediate</span>
+<span class="r">         255.0M  Plugins/ECABridge/Intermediate</span>
+<span class="r">           7.9M  Plugins/ECABridge/Binaries</span>
+<span class="r">           1.6M  DerivedDataCache</span>
+<span class="r">           967K  Binaries</span>
+
+<span class="g">Reclaimed 8.3G to the Trash / Recycle Bin (recoverable).</span>
+<span class="d">Note: on the same volume this frees no disk space until the bin is emptied. Use --permanent to free it immediately.</span></pre></div></div>
