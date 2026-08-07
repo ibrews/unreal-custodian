@@ -10,7 +10,13 @@ Epic themselves agree these folders are junk: Fab's 15 GB submission limit is sp
 
 ## Before and after
 
-One project, `ThirdPersonClass` — 8.7 GB down to 359 MB. `Content`, `Config`, `Saved` and the `.uproject` are untouched; `Plugins` shrinks to just its source. Everything removed regenerates on the next build.
+Here is a real project in Finder, with the actual cleanup plan drawn on top — `upj` tells you exactly which folders go, which shrink, and which it will not touch, before it touches anything. `GASP57`, 7.4 GB down to 5.1 GB:
+
+![Finder before and after](docs/media/finder-before-after.png)
+
+Note what survives: `Content` (5.4 GB of authored assets), `Config`, the `.uproject`, and everything in `Plugins` and `Saved` except their build output. Everything removed regenerates on the next build.
+
+A second project, `ThirdPersonClass`, where the caches dominated — 8.7 GB down to 359 MB:
 
 ![before and after](docs/media/before-after.png)
 
@@ -82,7 +88,7 @@ With the default pressure threshold this is a no-op on a healthy disk and only a
 
 Project discovery — locating every `.uproject` and engine install on a machine via the OS file index rather than a filesystem walk, and reading engine versions out of `Build.version` — is built on **[Marshall (@nocxr)](https://github.com/nocxr)**'s Unreal Project Launcher. That index-first approach is the reason this tool is usable at all: a recursive search for `*.uproject` across a developer's drives takes minutes and times out, while Everything and Spotlight answer in well under a second. Thanks Marshall.
 
-Built by [Alex Coulombe Presents](https://www.alexcoulombepresents.com).
+Built by [@ibrews](https://github.com/ibrews) and [@nocxr](https://github.com/nocxr).
 
 ## License
 
