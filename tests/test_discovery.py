@@ -111,3 +111,22 @@ def test_a_project_folder_named_like_an_engine_is_kept(tmp_path: Path, monkeypat
 
     monkeypatch.setattr(discovery, "_index_search", lambda pattern: [uproject])
     assert [p.name for p in discovery.find_projects(engine_installs=[])] == ["MyGame"]
+
+
+def test_walk_prunes_system_trees_and_caps_depth(tmp_path: Path) -> None:
+    """A whole-drive fallback walk has to finish, or users assume it hung."""
+    (tmp_path / "Windows" / "System32").mkdir(parents=True)
+    (tmp_path / "Windows" / "System32" / "Decoy.uproject").write_text("{}", encoding="utf-8")
+
+    shallow = tmp_path / "work" / "MyGame"
+    shallow.mkdir(parents=True)
+    (shallow / "MyGame.uproject").write_text("{}", encoding="utf-8")
+
+    deep = tmp_path.joinpath(*[f"lvl{i}" for i in range(12)])
+    deep.mkdir(parents=True)
+    (deep / "TooDeep.uproject").write_text("{}", encoding="utf-8")
+
+    found = {p.name for p in discovery._walk_search([tmp_path], ".uproject")}
+    assert "MyGame.uproject" in found
+    assert "Decoy.uproject" not in found  # pruned system tree
+    assert "TooDeep.uproject" not in found  # past the depth cap

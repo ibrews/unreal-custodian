@@ -8,13 +8,14 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import policy as policy_mod
 from . import safedelete
-from .discovery import find_engine_installs, find_projects
+from .discovery import find_engine_installs, find_projects, index_available
 from .sizing import (
     EngineReport,
     ProjectReport,
@@ -38,6 +39,18 @@ def _scan_all(
         projects = [
             p for p in projects if needle in p.name.lower() or needle in str(p.root).lower()
         ]
+
+    if not quiet and not index_available():
+        print(
+            "No file index available -- falling back to a filesystem walk, which is "
+            "much slower.\n"
+            + (
+                "Install Everything (https://www.voidtools.com/downloads/#cli) and put "
+                "es.exe on your PATH.\n"
+                if os.name == "nt"
+                else "Spotlight indexing appears to be off for this volume.\n"
+            )
+        )
 
     if not quiet:
         print(f"Found {len(engines)} engine install(s), {len(projects)} project(s).")

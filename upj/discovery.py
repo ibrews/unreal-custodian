@@ -26,6 +26,15 @@ _PRUNE_DIRS = {
     "node_modules",
     ".git",
     ".svn",
+    # System trees that hold no user projects and are enormous to descend.
+    # Without these, a whole-drive fallback walk on Windows takes long enough
+    # that users assume the tool has hung.
+    "Windows",
+    "WinSxS",
+    "$Recycle.Bin",
+    "System Volume Information",
+    "AppData",
+    "Library",  # macOS: caches, containers, no .uproject worth finding
 }
 
 # Path *components* (not substrings) that mark a project as engine-supplied
@@ -113,18 +122,40 @@ def _index_search(pattern: str) -> list[Path] | None:
     return None
 
 
+# Deep enough for any sane layout, shallow enough to finish. Only applies to
+# the fallback walk; an indexed search has no depth limit.
+_MAX_WALK_DEPTH = 8
+
+
 def _walk_search(roots: list[Path], filename_suffix: str) -> list[Path]:
-    """Fallback: prune-heavy filesystem walk."""
+    """Fallback: prune-heavy, depth-capped filesystem walk."""
     hits: list[Path] = []
     for root in roots:
         if not root.is_dir():
             continue
+        base_depth = len(root.parts)
         for dirpath, dirnames, filenames in os.walk(root, onerror=lambda _: None):
-            dirnames[:] = [d for d in dirnames if d not in _PRUNE_DIRS]
+            if len(Path(dirpath).parts) - base_depth >= _MAX_WALK_DEPTH:
+                dirnames[:] = []
+                continue
+            dirnames[:] = [
+                d for d in dirnames if d not in _PRUNE_DIRS and not d.startswith("$")
+            ]
             for fn in filenames:
                 if fn.endswith(filename_suffix):
                     hits.append(Path(dirpath) / fn)
     return hits
+
+
+def index_available() -> bool:
+    """Is a fast file index usable, or are we about to fall back to walking?"""
+    if sys.platform == "darwin":
+        return bool(_run(["mdutil", "-s", "/"]))
+    if os.name == "nt":
+        return _everything_exe() is not None and bool(
+            _run([_everything_exe(), "-get-total-file-count"])
+        )
+    return False
 
 
 def _fixed_drives() -> list[Path]:
