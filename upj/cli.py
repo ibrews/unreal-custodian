@@ -15,7 +15,14 @@ from pathlib import Path
 from . import policy as policy_mod
 from . import safedelete
 from .discovery import find_engine_installs, find_projects
-from .sizing import ProjectReport, free_bytes, human, scan_project
+from .sizing import (
+    EngineReport,
+    ProjectReport,
+    free_bytes,
+    human,
+    scan_engine,
+    scan_project,
+)
 
 GB = 1024**3
 
@@ -114,13 +121,45 @@ def _print_detail(reports: list[ProjectReport]) -> None:
             )
 
 
+def _engine_keys(args: argparse.Namespace) -> frozenset[str] | None:
+    """Opt in to the expensive engine targets."""
+    if not getattr(args, "engine_rebuildable", False):
+        return None
+    return frozenset(t.key for t in policy_mod.ENGINE_TARGETS)
+
+
+def _print_engines(reports: list[EngineReport]) -> None:
+    if not reports:
+        return
+    print("\nENGINE INSTALLS")
+    print("-" * 70)
+    for report in reports:
+        engine = report.engine
+        print(
+            f"  {engine.label} ({engine.kind})  {human(report.reclaimable_bytes):>9} "
+            f"reclaimable   {engine.root}"
+        )
+        for size in report.sizes:
+            rel = size.path.relative_to(engine.root).as_posix()
+            print(f"      {human(size.bytes):>9}  {rel:<32} {size.target.rebuild_cost}")
+        for path, reason in report.skipped:
+            rel = path.relative_to(engine.root).as_posix()
+            print(f"      {'--':>9}  {rel:<32} SKIPPED: {reason}")
+
+
 def cmd_report(args: argparse.Namespace) -> int:
+    engines = find_engine_installs()
+    engine_reports = [scan_engine(e, _engine_keys(args)) for e in engines]
+
     reports = _scan_all(policy_mod.DEFAULT_POLICY, args.quiet, args.only)
     _print_table(reports)
     if args.detail:
         _print_detail(reports)
+    _print_engines(engine_reports)
 
-    total = sum(r.reclaimable_bytes for r in reports)
+    total = sum(r.reclaimable_bytes for r in reports) + sum(
+        r.reclaimable_bytes for r in engine_reports
+    )
     free = free_bytes(Path.home())
     print()
     print(f"TOTAL RECLAIMABLE: {human(total)}")
@@ -216,6 +255,12 @@ def build_parser() -> argparse.ArgumentParser:
     report = sub.add_parser("report", help="inventory projects and reclaimable space")
     report.add_argument("--detail", action="store_true", help="break down by directory")
     report.add_argument("--only", help="limit to projects matching this name or path")
+    report.add_argument(
+        "--engine-rebuildable",
+        action="store_true",
+        help="also count engine Intermediate/Binaries (source-built engines only; "
+             "reclaims tens of GB but costs a full engine rebuild)",
+    )
     report.set_defaults(func=cmd_report)
 
     clean = sub.add_parser("clean", help="reclaim space (dry run unless --apply)")

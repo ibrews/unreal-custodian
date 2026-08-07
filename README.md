@@ -52,9 +52,34 @@ Set `min_free_gb` to `0`, or pass `--ignore-pressure`, if you want age alone to 
 
 **Refusals are reported, not fatal.** Directories owned by another user — extremely common in projects copied between machines — are reported up front with the owning uid, rather than failing one `move` at a time after the plan has already started running. If a `Plugins/Foo` directory is a symlink into a different checkout, reclaiming through it would delete build artifacts from a repository you never named — so it is skipped, with a note, and the rest of the project is still processed.
 
+## Engine installs are usually the bigger prize
+
+Projects get the attention, but a **source-built** engine holds far more reclaimable output than an entire project library. On the development machine:
+
+| | UE 5.8 (launcher install) | UE 5.6 (source build) |
+|---|---|---|
+| `Engine/Intermediate` | 3.3 GB | **90.0 GB** |
+| `Engine/Binaries` | 16 GB | **56.6 GB** |
+| `Engine/DerivedDataCache` | 2.9 GB | 296 MB |
+| Total install | 55 GB | 430 GB |
+
+One source engine was holding **146.8 GB** of rebuildable output — nearly double all 96 projects combined.
+
+**The distinction that matters:** in a launcher install, `Engine/Binaries` *is* the engine. It was shipped precompiled, nothing on your machine can rebuild it, and deleting it turns a 55 GB install into a re-download. In a source build the same directory is genuine build output.
+
+`upj` tells them apart by the marker UnrealBuildTool leaves behind — `InstalledBuild.txt` versus `SourceDistribution.txt` — and enforces the rule in code rather than trusting a flag. An engine with neither marker is treated as installed, because guessing wrong in that direction is the expensive mistake.
+
+Engine caches and logs are reclaimed by default on both kinds. The big two are opt-in even on a source build, because reclaiming tens of gigabytes costs you a multi-hour engine rebuild:
+
+```bash
+python3 -m upj.cli report --engine-rebuildable
+```
+
 ## What is never deleted
 
 `Content`, `Source`, `Config`, the `Plugins` directory itself, and `Saved/SaveGames` are protected. This is asserted in code at the point of deletion, not merely documented — an intention that isn't checked is not a safety property. See `tests/test_policy.py`, which exists specifically to hold that line.
+
+In an engine install, `Engine/Source` is never a target, and `Engine/Binaries` and `Engine/Intermediate` are refused outright on precompiled installs.
 
 `Saved/Autosaves` is removable but gated at 90 days regardless of your other settings, because after an editor crash it is sometimes the only copy of an hour's work. `Saved/Config` is opt-in, since losing it costs you your editor layout. For C++ projects `Binaries` is kept by default; for Blueprint-only projects it regenerates on open and is reclaimed.
 
@@ -73,6 +98,16 @@ Drop a `.ueclean.json` next to the `.uproject`. It layers over the global defaul
 ```
 
 An unrecognized key in `targets` is a hard error rather than a silent no-op, so a typo can't quietly disable a protection you thought you had.
+
+## The GUI
+
+```bash
+python3 -m upj.gui
+```
+
+Sortable table of every project with its reclaimable size, last-touched date, engine version and eligibility; engine installs below; double-click to launch. The Trash/permanent choice is a checkbox, and "Never clean this" writes the `.ueclean.json` opt-out for you.
+
+Note the GUI needs a Python built with `tkinter`. The CLI has no such requirement and runs on the Python that ships inside Unreal itself (`Engine/Binaries/ThirdParty/Python3/`) — that bundled interpreter has no `tkinter`, so it cannot run the GUI.
 
 ## Automating it
 

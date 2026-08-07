@@ -121,6 +121,68 @@ TARGETS: tuple[Target, ...] = (
 
 TARGETS_BY_KEY = {t.key: t for t in TARGETS}
 
+
+@dataclass(frozen=True)
+class EngineTarget:
+    """One reclaimable location inside an engine install."""
+
+    key: str
+    relpath: str
+    description: str
+    default_on: bool
+    rebuild_cost: str
+    # Precompiled installs ship these as product, not as build output.
+    source_builds_only: bool = False
+
+
+# A source-built engine can hold far more reclaimable data than every project
+# on the machine combined -- 90 GB of Intermediate and 57 GB of Binaries on the
+# engine this was developed against. But on a launcher install those same
+# directories ARE the engine.
+ENGINE_TARGETS: tuple[EngineTarget, ...] = (
+    EngineTarget(
+        key="engine_ddc",
+        relpath="Engine/DerivedDataCache",
+        description="Engine-wide derived data cache",
+        default_on=True,
+        rebuild_cost="re-derived on next editor start (slow first load)",
+    ),
+    EngineTarget(
+        key="engine_logs",
+        relpath="Engine/Saved/Logs",
+        description="Engine logs",
+        default_on=True,
+        rebuild_cost="none",
+    ),
+    EngineTarget(
+        key="engine_crashes",
+        relpath="Engine/Saved/Crashes",
+        description="Engine crash reports",
+        default_on=True,
+        rebuild_cost="none",
+    ),
+    EngineTarget(
+        key="engine_intermediate",
+        relpath="Engine/Intermediate",
+        description="Engine build intermediates",
+        # Off by default even on source builds: reclaiming it is measured in
+        # tens of gigabytes, but the rebuild is measured in hours.
+        default_on=False,
+        source_builds_only=True,
+        rebuild_cost="FULL ENGINE REBUILD (hours)",
+    ),
+    EngineTarget(
+        key="engine_binaries",
+        relpath="Engine/Binaries",
+        description="Compiled engine binaries",
+        default_on=False,
+        source_builds_only=True,
+        rebuild_cost="FULL ENGINE REBUILD (hours)",
+    ),
+)
+
+ENGINE_TARGETS_BY_KEY = {t.key: t for t in ENGINE_TARGETS}
+
 # Deleting any of these is a bug, not a policy choice. Checked, not just documented.
 NEVER_DELETE: frozenset[str] = frozenset(
     {
@@ -162,6 +224,39 @@ class Policy:
 
 
 DEFAULT_POLICY = Policy()
+
+
+def resolve_engine_targets(
+    engine_root: Path, installed_build: bool, enabled_keys: frozenset[str] | None = None
+) -> Resolution:
+    """Reclaimable paths inside an engine install.
+
+    The installed-build rule is enforced here rather than left to the caller:
+    deleting Engine/Binaries from a launcher install does not free rebuildable
+    space, it destroys the engine and costs a multi-gigabyte re-download.
+    """
+    if enabled_keys is None:
+        enabled_keys = frozenset(t.key for t in ENGINE_TARGETS if t.default_on)
+
+    resolution = Resolution()
+    for key in sorted(enabled_keys):
+        target = ENGINE_TARGETS_BY_KEY.get(key)
+        if target is None:
+            continue
+        candidate = engine_root / target.relpath
+        if not candidate.is_dir():
+            continue
+        if target.source_builds_only and installed_build:
+            resolution.skipped.append(
+                (candidate, "precompiled install -- this is the engine, not build output")
+            )
+            continue
+        unwritable = _not_writable_reason(candidate)
+        if unwritable:
+            resolution.skipped.append((candidate, unwritable))
+            continue
+        resolution.targets.append((target, candidate))
+    return resolution
 
 
 def load_policy(project_root: Path, base: Policy = DEFAULT_POLICY) -> Policy:

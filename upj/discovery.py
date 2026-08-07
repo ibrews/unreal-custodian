@@ -39,10 +39,18 @@ _EXCLUDE_COMPONENTS = {"templates", "samples", "appdata"}
 class EngineInstall:
     root: Path  # the directory *containing* Engine/
     version: str
+    # Launcher/binary installs ship precompiled Binaries -- those ARE the
+    # engine, not build output, and deleting them means re-downloading tens of
+    # gigabytes. A source build can rebuild everything it holds.
+    installed_build: bool = True
 
     @property
     def label(self) -> str:
         return f"UE {self.version}"
+
+    @property
+    def kind(self) -> str:
+        return "installed" if self.installed_build else "source"
 
 
 @dataclass(frozen=True)
@@ -190,7 +198,27 @@ def _engine_from_root(engine_root: Path) -> EngineInstall | None:
     version = ".".join(
         str(data.get(k, 0)) for k in ("MajorVersion", "MinorVersion", "PatchVersion")
     )
-    return EngineInstall(root=engine_root, version=version)
+    return EngineInstall(
+        root=engine_root,
+        version=version,
+        installed_build=_is_installed_build(engine_root),
+    )
+
+
+def _is_installed_build(engine_root: Path) -> bool:
+    """Distinguish a launcher/binary install from a source build.
+
+    UnrealBuildTool drops InstalledBuild.txt into binary installs; source
+    distributions get SourceDistribution.txt instead. Getting this wrong in the
+    unsafe direction destroys a precompiled engine, so an engine with neither
+    marker is treated as installed.
+    """
+    build = engine_root / "Engine" / "Build"
+    if (build / "InstalledBuild.txt").is_file():
+        return True
+    if (build / "SourceDistribution.txt").is_file():
+        return False
+    return True
 
 
 def find_engine_installs(roots: list[Path] | None = None) -> list[EngineInstall]:
@@ -218,7 +246,14 @@ def find_engine_installs(roots: list[Path] | None = None) -> list[EngineInstall]
         version = ".".join(
             str(data.get(k, 0)) for k in ("MajorVersion", "MinorVersion", "PatchVersion")
         )
-        installs[engine_root] = EngineInstall(root=engine_root, version=version)
+        installs.setdefault(
+            engine_root,
+            EngineInstall(
+                root=engine_root,
+                version=version,
+                installed_build=_is_installed_build(engine_root),
+            ),
+        )
 
     return sorted(installs.values(), key=lambda e: str(e.root))
 

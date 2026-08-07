@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import freshness as freshness_mod
 from . import policy as policy_mod
-from .discovery import Project
+from .discovery import EngineInstall, Project
 
 
 @dataclass(frozen=True)
@@ -45,6 +45,36 @@ class ProjectReport:
     def age_eligible(self) -> bool:
         age = self.age_days
         return age is not None and age >= self.policy.min_age_days
+
+
+@dataclass
+class EngineReport:
+    engine: EngineInstall
+    sizes: list[TargetSize] = field(default_factory=list)
+    skipped: list[tuple[Path, str]] = field(default_factory=list)
+
+    @property
+    def reclaimable_bytes(self) -> int:
+        return sum(s.bytes for s in self.sizes)
+
+    @property
+    def locked_bytes(self) -> int:
+        """Space that exists but is not safe to reclaim on this engine kind."""
+        return sum(directory_size(p) for p, _ in self.skipped)
+
+
+def scan_engine(
+    engine: EngineInstall, enabled_keys=None
+) -> EngineReport:
+    resolution = policy_mod.resolve_engine_targets(
+        engine.root, engine.installed_build, enabled_keys
+    )
+    sizes = [
+        TargetSize(target=target, path=path, bytes=directory_size(path))
+        for target, path in resolution.targets
+    ]
+    sizes.sort(key=lambda s: s.bytes, reverse=True)
+    return EngineReport(engine=engine, sizes=sizes, skipped=resolution.skipped)
 
 
 def directory_size(path: Path) -> int:
