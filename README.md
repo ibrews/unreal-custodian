@@ -2,7 +2,14 @@
 
 Find and reclaim the regeneratable build caches that Unreal Engine projects accumulate — `Intermediate`, `Binaries`, `DerivedDataCache`, cooked content and staged builds — across every project on your machine, without touching anything you authored.
 
-A developer with a few years of Unreal projects on disk is typically sitting on tens or hundreds of gigabytes of pure rebuild artifacts. On the machine this was developed against, 96 projects were holding over **120 GB** of reclaimable cache while the volume had 60 GB free.
+A developer with a few years of Unreal projects on disk is typically sitting on tens or hundreds of gigabytes of pure rebuild artifacts. On the two machines this was tested against:
+
+| | Projects | Engines | Reclaimable | Free space |
+|---|---|---|---|---|
+| macOS workstation | 96 | 2 | 224 GB | 60 GB |
+| Windows workstation | 539 | 14 | **2.0 TB** | **17 GB** |
+
+The Windows box had six source-built engines holding 60–75 GB each, and 17 GB of headroom.
 
 Epic themselves agree these folders are junk: Fab's 15 GB submission limit is specified *excluding* `Saved` and `Intermediate`.
 
