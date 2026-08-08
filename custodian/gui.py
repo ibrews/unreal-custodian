@@ -53,6 +53,16 @@ class CustodianApp:
         self.status = tk.StringVar(value="Ready.")
         self.summary = tk.StringVar(value="")
 
+        # Which project-level folders (Intermediate, Saved/Cooked, DDC, ...)
+        # get cleaned. A project's own .ueclean.json still overrides this per
+        # project -- this is just the GUI's starting policy, same role as the
+        # CLI's built-in defaults.
+        self.target_vars: dict[str, tk.BooleanVar] = {
+            t.key: tk.BooleanVar(value=t.default_on) for t in policy_mod.TARGETS
+        }
+        self.targets_summary = tk.StringVar(value="")
+        self._refresh_targets_summary()
+
         self._build_layout()
         self.root.after(80, self._drain)
         self.rescan()
@@ -62,33 +72,47 @@ class CustodianApp:
     def _build_layout(self) -> None:
         outer = ttk.Frame(self.root, padding=10)
         outer.pack(fill=tk.BOTH, expand=True)
-        outer.columnconfigure(0, weight=1)
-        outer.rowconfigure(1, weight=3)
-        outer.rowconfigure(4, weight=2)
 
-        ttk.Label(outer, text="Unreal Projects", font=("", 13, "bold")).grid(
-            row=0, column=0, sticky=tk.W, pady=(0, 4)
-        )
-        self._build_projects(outer)
+        # A PanedWindow rather than fixed grid rows: with as few as two engine
+        # installs, a fixed-height allocation for that section is mostly empty
+        # background. The sash lets a user reclaim that space by hand instead
+        # of the tool guessing a split that's wrong for their machine.
+        paned = ttk.PanedWindow(outer, orient=tk.VERTICAL)
+        paned.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        ttk.Separator(outer, orient="horizontal").grid(
-            row=2, column=0, sticky=tk.EW, pady=8
+        top = ttk.Frame(paned)
+        bottom = ttk.Frame(paned)
+        paned.add(top, weight=3)
+        paned.add(bottom, weight=1)
+        # Give the projects pane most of the space by default; the sash is
+        # still fully draggable afterward.
+        self.root.after(60, lambda: self._set_initial_sash(paned))
+
+        ttk.Label(top, text="Unreal Projects", font=("", 13, "bold")).pack(
+            side=tk.TOP, anchor=tk.W, pady=(0, 4)
         )
-        ttk.Label(outer, text="Engine Installations", font=("", 13, "bold")).grid(
-            row=3, column=0, sticky=tk.W, pady=(0, 4)
+        self._build_projects(top)
+
+        ttk.Label(bottom, text="Engine Installations", font=("", 13, "bold")).pack(
+            side=tk.TOP, anchor=tk.W, pady=(0, 4)
         )
-        self._build_engines(outer)
+        self._build_engines(bottom)
 
         bar = ttk.Frame(outer)
-        bar.grid(row=5, column=0, sticky=tk.EW, pady=(8, 0))
+        bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
         ttk.Label(bar, textvariable=self.status).pack(side=tk.LEFT)
         ttk.Label(bar, textvariable=self.summary, font=("", 11, "bold")).pack(
             side=tk.RIGHT
         )
 
+    def _set_initial_sash(self, paned: ttk.PanedWindow) -> None:
+        total = paned.winfo_height()
+        if total > 100:
+            paned.sashpos(0, int(total * 0.72))
+
     def _build_projects(self, parent: ttk.Frame) -> None:
         frame = ttk.Frame(parent)
-        frame.grid(row=1, column=0, sticky=tk.NSEW)
+        frame.pack(fill=tk.BOTH, expand=True)
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(0, weight=1)
 
@@ -133,6 +157,10 @@ class CustodianApp:
         ttk.Button(
             buttons, text="Never clean this", command=self.toggle_opt_out
         ).pack(side=tk.LEFT, padx=(8, 0))
+        self.targets_button = ttk.Button(
+            buttons, textvariable=self.targets_summary, command=self.open_target_config
+        )
+        self.targets_button.pack(side=tk.LEFT, padx=(8, 0))
 
         ttk.Checkbutton(
             buttons,
@@ -147,7 +175,7 @@ class CustodianApp:
 
     def _build_engines(self, parent: ttk.Frame) -> None:
         frame = ttk.Frame(parent)
-        frame.grid(row=4, column=0, sticky=tk.NSEW)
+        frame.pack(fill=tk.BOTH, expand=True)
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(0, weight=1)
 
@@ -207,11 +235,14 @@ class CustodianApp:
         self.status.set("Searching...")
         self.summary.set("")
         include_rebuildable = self.engine_rebuildable.get()
+        base_policy = policy_mod.DEFAULT_POLICY.with_overrides(
+            {"targets": [key for key, var in self.target_vars.items() if var.get()]}
+        )
         threading.Thread(
-            target=self._scan_worker, args=(include_rebuildable,), daemon=True
+            target=self._scan_worker, args=(include_rebuildable, base_policy), daemon=True
         ).start()
 
-    def _scan_worker(self, include_rebuildable: bool) -> None:
+    def _scan_worker(self, include_rebuildable: bool, base_policy: policy_mod.Policy) -> None:
         """Runs off the main thread; every result goes back through the queue."""
         try:
             engines = find_engine_installs()
@@ -225,7 +256,9 @@ class CustodianApp:
             projects = find_projects(engine_installs=engines)
             self.results.put(("count", len(projects)))
             for project in projects:
-                self.results.put(("project", scan_project(project)))
+                # A project's own .ueclean.json still layers over this and
+                # wins -- base_policy only supplies what the file doesn't say.
+                self.results.put(("project", scan_project(project, base_policy)))
         except Exception as exc:  # surfaced in the status bar, never silent
             self.results.put(("error", str(exc)))
         finally:
@@ -416,6 +449,63 @@ class CustodianApp:
             self.reports[key] = updated = scan_project(report.project)
             self.tree.item(key, values=self._row(updated), tags=(self._tag(updated),))
         self._refresh_summary()
+
+    def _refresh_targets_summary(self) -> None:
+        n = sum(1 for v in self.target_vars.values() if v.get())
+        self.targets_summary.set(f"Clean targets ({n}/{len(self.target_vars)})…")
+
+    def open_target_config(self) -> None:
+        """Pick which reclaimable folders (Intermediate, Saved/Cooked, DDC, ...)
+        are in scope for this session's cleanup.
+
+        This is the GUI equivalent of a project's `.ueclean.json` `targets`
+        list -- a project file still wins over this if one exists; this only
+        sets what applies when a project has no file of its own.
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Cleanup targets")
+        dialog.transient(self.root)
+        dialog.resizable(False, True)
+
+        ttk.Label(
+            dialog,
+            text="Which reclaimable folders should be in scope for projects "
+                 "that don't have their own .ueclean.json:",
+            wraplength=460, justify=tk.LEFT,
+        ).pack(anchor=tk.W, padx=14, pady=(14, 8))
+
+        body = ttk.Frame(dialog)
+        body.pack(fill=tk.BOTH, expand=True, padx=14)
+        for target in policy_mod.TARGETS:
+            row = ttk.Frame(body)
+            row.pack(fill=tk.X, pady=2)
+            ttk.Checkbutton(
+                row, text=target.key, variable=self.target_vars[target.key]
+            ).pack(side=tk.LEFT)
+            ttk.Label(
+                row, text=f"{target.description}  ·  costs: {target.rebuild_cost}",
+                foreground="#666666",
+            ).pack(side=tk.LEFT, padx=(8, 0))
+
+        buttons = ttk.Frame(dialog)
+        buttons.pack(fill=tk.X, padx=14, pady=12)
+        ttk.Button(
+            buttons, text="Defaults",
+            command=lambda: [
+                self.target_vars[t.key].set(t.default_on) for t in policy_mod.TARGETS
+            ],
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            buttons, text="Apply", command=lambda: self._apply_target_config(dialog)
+        ).pack(side=tk.RIGHT)
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(
+            side=tk.RIGHT, padx=(0, 8)
+        )
+
+    def _apply_target_config(self, dialog: tk.Toplevel) -> None:
+        self._refresh_targets_summary()
+        dialog.destroy()
+        self.rescan()
 
     def _warn_permanent(self) -> None:
         if not self.permanent.get():

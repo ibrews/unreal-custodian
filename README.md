@@ -116,6 +116,10 @@ python3 -m custodian.gui
 
 Sortable table of every project with its reclaimable size, last-touched date, engine version and eligibility; sortable table of engine installs below it with the same fields, so a source build's 60+ GB is as reachable as any project — its Intermediate/Binaries stay behind an explicit checkbox, since reclaiming them costs a full engine rebuild. The Trash/permanent choice is a checkbox, and "Never clean this" writes the `.ueclean.json` opt-out for you.
 
+The divider between the two tables is a draggable sash, not a fixed split — with only a couple of engines installed the bottom table doesn't need much room, so drag it down and give the project list the space. Treeview column borders are draggable the same way Finder's and Explorer's are.
+
+**"Clean targets (N/12)…"** picks which reclaimable folders (`Intermediate`, `Saved/Cooked`, `DerivedDataCache`, `Binaries`, `Build`, …) are in scope, for any project that doesn't have its own `.ueclean.json` — the same list documented in [Configuration](#per-project-configuration) below, as checkboxes instead of hand-edited JSON. A project's own config file still wins over this if one exists.
+
 **The GUI needs a Python built with `tkinter` *and Tk 8.6 or newer*.** The CLI has no such requirement and runs on the Python that ships inside Unreal itself (`Engine/Binaries/ThirdParty/Python3/`) — that bundled interpreter has no `tkinter` at all, so it cannot run the GUI either way.
 
 On macOS specifically: the only tkinter Apple ships is bundled inside Xcode's Python 3.9 (`/usr/bin/python3`), and its Tk is 8.5 — old enough to hit a well-known blank/white-window bug on modern macOS (nothing renders, no error, the window just stays empty). If `python3 -m custodian.gui` gives you a blank window, that is almost certainly it. Fix:
