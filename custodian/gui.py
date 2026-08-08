@@ -9,10 +9,19 @@ which was fine when the work was an instant Everything query. Measuring
 directory sizes for a hundred projects is not instant, so scanning happens on
 a worker and results are streamed into the table as they arrive. Doing it the
 original way locks the window for minutes.
+
+Engine installs are reclaimable from here too, not just displayed -- on the
+machine this shipped against, engines held far more rebuildable output than
+every project combined (146.8 GB on one source build vs. 121 GB across 96
+projects). A launcher/binary install's Binaries are refused outright, same as
+the CLI; a source build's Intermediate/Binaries stay behind an explicit
+checkbox, because reclaiming them costs a multi-hour engine rebuild.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import queue
 import subprocess
 import sys
@@ -23,24 +32,24 @@ from tkinter import messagebox, ttk
 
 from . import policy as policy_mod
 from . import safedelete
-from .discovery import EngineInstall, Project, find_engine_installs, find_projects
-from .sizing import ProjectReport, free_bytes, human, scan_project
-
-GB = 1024**3
+from .discovery import find_engine_installs, find_projects
+from .sizing import EngineReport, ProjectReport, free_bytes, human, scan_engine, scan_project
 
 
 class CustodianApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         root.title("Unreal Custodian")
-        root.geometry("1180x760")
-        root.minsize(900, 560)
+        root.geometry("1180x780")
+        root.minsize(900, 580)
 
         self.reports: dict[str, ProjectReport] = {}
+        self.engine_reports: dict[str, EngineReport] = {}
         self.results: queue.Queue = queue.Queue()
         self.scanning = False
 
         self.permanent = tk.BooleanVar(value=False)
+        self.engine_rebuildable = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="Ready.")
         self.summary = tk.StringVar(value="")
 
@@ -55,7 +64,7 @@ class CustodianApp:
         outer.pack(fill=tk.BOTH, expand=True)
         outer.columnconfigure(0, weight=1)
         outer.rowconfigure(1, weight=3)
-        outer.rowconfigure(4, weight=1)
+        outer.rowconfigure(4, weight=2)
 
         ttk.Label(outer, text="Unreal Projects", font=("", 13, "bold")).grid(
             row=0, column=0, sticky=tk.W, pady=(0, 4)
@@ -95,7 +104,7 @@ class CustodianApp:
             "path": ("Location", 330),
         }
         for key, (label, width) in headings.items():
-            self.tree.heading(key, text=label, command=lambda k=key: self._sort(k))
+            self.tree.heading(key, text=label, command=lambda k=key: self._sort(self.tree, k, self.reports))
             anchor = tk.E if key in ("reclaim", "age") else tk.W
             self.tree.column(key, width=width, anchor=anchor, stretch=(key == "path"))
 
@@ -108,6 +117,9 @@ class CustodianApp:
         self.tree.tag_configure("eligible", foreground="#b3261e")
         self.tree.tag_configure("blocked", foreground="#8a8a8a")
         self.tree.bind("<Double-1>", lambda _e: self.launch_project())
+        # Selecting in one tree clears the other -- "Clean Selected" always
+        # acts on an unambiguous set rather than silently unioning both.
+        self.tree.bind("<<TreeviewSelect>>", lambda _e: self._clear_selection(self.engines))
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
@@ -139,39 +151,77 @@ class CustodianApp:
         frame.columnconfigure(0, weight=1)
         frame.rowconfigure(0, weight=1)
 
-        self.engines = ttk.Treeview(
-            frame, columns=("version", "path"), show="tree headings", height=4
+        columns = ("reclaim", "kind", "status", "path")
+        self.engines = ttk.Treeview(frame, columns=columns, show="tree headings", height=5)
+        headings = {
+            "#0": ("Engine", 150),
+            "reclaim": ("Reclaimable", 100),
+            "kind": ("Install", 80),
+            "status": ("Status", 260),
+            "path": ("Location", 460),
+        }
+        for key, (label, width) in headings.items():
+            self.engines.heading(
+                key, text=label,
+                command=lambda k=key: self._sort(self.engines, k, self.engine_reports),
+            )
+            self.engines.column(
+                key, width=width, anchor=(tk.E if key == "reclaim" else tk.W),
+                stretch=(key == "path"),
+            )
+
+        self.engines.tag_configure("eligible", foreground="#b3261e")
+        self.engines.tag_configure("blocked", foreground="#8a8a8a")
+        self.engines.bind(
+            "<<TreeviewSelect>>", lambda _e: self._clear_selection(self.tree)
         )
-        self.engines.heading("#0", text="Engine")
-        self.engines.heading("version", text="Version")
-        self.engines.heading("path", text="Location")
-        self.engines.column("#0", width=210)
-        self.engines.column("version", width=100)
-        self.engines.column("path", width=700, stretch=True)
 
         vsb = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.engines.yview)
         self.engines.configure(yscrollcommand=vsb.set)
         self.engines.grid(row=0, column=0, sticky=tk.NSEW)
         vsb.grid(row=0, column=1, sticky=tk.NS)
 
+        note = ttk.Checkbutton(
+            frame,
+            text="Include Intermediate/Binaries on source-built engines "
+                 "(reclaims tens of GB, but costs a full engine rebuild)",
+            variable=self.engine_rebuildable,
+            command=self.rescan,
+        )
+        note.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+
     # ---------------------------------------------------------------- scanning
+
+    def _clear_selection(self, tree: ttk.Treeview) -> None:
+        if tree.selection():
+            tree.selection_remove(*tree.selection())
 
     def rescan(self) -> None:
         if self.scanning:
             return
         self.scanning = True
         self.reports.clear()
+        self.engine_reports.clear()
         self.tree.delete(*self.tree.get_children())
         self.engines.delete(*self.engines.get_children())
         self.status.set("Searching...")
         self.summary.set("")
-        threading.Thread(target=self._scan_worker, daemon=True).start()
+        include_rebuildable = self.engine_rebuildable.get()
+        threading.Thread(
+            target=self._scan_worker, args=(include_rebuildable,), daemon=True
+        ).start()
 
-    def _scan_worker(self) -> None:
+    def _scan_worker(self, include_rebuildable: bool) -> None:
         """Runs off the main thread; every result goes back through the queue."""
         try:
             engines = find_engine_installs()
-            self.results.put(("engines", engines))
+            keys = (
+                frozenset(t.key for t in policy_mod.ENGINE_TARGETS)
+                if include_rebuildable
+                else None
+            )
+            for engine in engines:
+                self.results.put(("engine", scan_engine(engine, keys)))
             projects = find_projects(engine_installs=engines)
             self.results.put(("count", len(projects)))
             for project in projects:
@@ -186,8 +236,8 @@ class CustodianApp:
         try:
             while True:
                 kind, payload = self.results.get_nowait()
-                if kind == "engines":
-                    self._add_engines(payload)
+                if kind == "engine":
+                    self._add_engine(payload)
                 elif kind == "count":
                     self.status.set(f"Measuring {payload} projects...")
                 elif kind == "project":
@@ -201,12 +251,32 @@ class CustodianApp:
             pass
         self.root.after(80, self._drain)
 
-    def _add_engines(self, engines: list[EngineInstall]) -> None:
-        for engine in engines:
-            self.engines.insert(
-                "", tk.END, text=engine.root.name,
-                values=(engine.version, str(engine.root)),
-            )
+    def _add_engine(self, report: EngineReport) -> None:
+        key = str(report.engine.root)
+        self.engine_reports[key] = report
+        self.engines.insert(
+            "", tk.END, iid=key, text=report.engine.label,
+            values=self._engine_row(report), tags=(self._engine_tag(report),),
+        )
+        self._refresh_summary()
+
+    def _engine_row(self, report: EngineReport) -> tuple:
+        return (
+            human(report.reclaimable_bytes),
+            report.engine.kind,
+            self._engine_status_text(report),
+            str(report.engine.root),
+        )
+
+    def _engine_status_text(self, report: EngineReport) -> str:
+        if report.skipped:
+            return report.skipped[0][1]
+        if report.reclaimable_bytes == 0:
+            return "already clean"
+        return "ready to clean"
+
+    def _engine_tag(self, report: EngineReport) -> str:
+        return "eligible" if report.reclaimable_bytes > 0 else "blocked"
 
     def _add_project(self, report: ProjectReport) -> None:
         # Keyed by the .uproject, not the folder: a single directory can hold
@@ -253,56 +323,68 @@ class CustodianApp:
         return "eligible" if eligible else "blocked"
 
     def _refresh_summary(self) -> None:
-        total = sum(r.reclaimable_bytes for r in self.reports.values())
-        ready = sum(
+        proj_total = sum(r.reclaimable_bytes for r in self.reports.values())
+        proj_ready = sum(
+            r.reclaimable_bytes for r in self.reports.values() if self._tag(r) == "eligible"
+        )
+        eng_total = sum(r.reclaimable_bytes for r in self.engine_reports.values())
+        eng_ready = sum(
             r.reclaimable_bytes
-            for r in self.reports.values()
-            if self._tag(r) == "eligible"
+            for r in self.engine_reports.values()
+            if self._engine_tag(r) == "eligible"
         )
         self.summary.set(
-            f"{human(ready)} ready to reclaim  ·  {human(total)} found  ·  "
+            f"{human(proj_ready + eng_ready)} ready to reclaim  ·  "
+            f"{human(proj_total + eng_total)} found  ·  "
             f"{human(free_bytes(Path.home()))} free"
         )
         if not self.scanning:
-            self.status.set(f"{len(self.reports)} projects.")
+            self.status.set(
+                f"{len(self.reports)} projects, {len(self.engine_reports)} engines."
+            )
 
-    def _sort(self, column: str) -> None:
+    def _sort(self, tree: ttk.Treeview, column: str, reports: dict) -> None:
         def key(iid: str):
-            report = self.reports[iid]
+            report = reports[iid]
             if column == "reclaim":
                 return -report.reclaimable_bytes
-            if column == "age":
+            if column == "age" and hasattr(report, "age_days"):
                 return -(report.age_days or 0)
             if column == "#0":
-                return report.project.name.lower()
-            index = self.tree["columns"].index(column)
-            return str(self.tree.item(iid, "values")[index]).lower()
+                return tree.item(iid, "text").lower()
+            index = tree["columns"].index(column)
+            return str(tree.item(iid, "values")[index]).lower()
 
-        for position, iid in enumerate(sorted(self.tree.get_children(), key=key)):
-            self.tree.move(iid, "", position)
+        for position, iid in enumerate(sorted(tree.get_children(), key=key)):
+            tree.move(iid, "", position)
 
     # ---------------------------------------------------------------- actions
 
-    def _selected(self) -> list[ProjectReport]:
+    def _selected_projects(self) -> list[ProjectReport]:
         return [self.reports[iid] for iid in self.tree.selection() if iid in self.reports]
 
+    def _selected_engines(self) -> list[EngineReport]:
+        return [
+            self.engine_reports[iid]
+            for iid in self.engines.selection()
+            if iid in self.engine_reports
+        ]
+
     def launch_project(self) -> None:
-        for report in self._selected()[:1]:
+        for report in self._selected_projects()[:1]:
             path = report.project.uproject
             if sys.platform == "darwin":
                 subprocess.Popen(["open", str(path)])
             elif sys.platform.startswith("win"):
                 # startfile avoids the shell entirely, so a path containing '&'
                 # or a space cannot be reinterpreted as a command.
-                import os
-
                 os.startfile(str(path))  # noqa: S606
             else:
                 subprocess.Popen(["xdg-open", str(path)])
             self.status.set(f"Launched {path.name}")
 
     def reveal_project(self) -> None:
-        for report in self._selected()[:1]:
+        for report in self._selected_projects()[:1]:
             path = report.project.uproject
             if sys.platform == "darwin":
                 subprocess.Popen(["open", "-R", str(path)])
@@ -317,17 +399,16 @@ class CustodianApp:
         The config sits next to the .uproject, so projects sharing a directory
         share one policy -- toggling either toggles both.
         """
-        import json
-
-        for report in self._selected():
+        for report in self._selected_projects():
             config = report.project.root / policy_mod.CONFIG_FILENAME
             currently_off = not report.policy.enabled
             try:
                 if currently_off:
                     config.unlink(missing_ok=True)
                 else:
-                    config.write_text(json.dumps({"enabled": False}, indent=2) + "\n",
-                                      encoding="utf-8")
+                    config.write_text(
+                        json.dumps({"enabled": False}, indent=2) + "\n", encoding="utf-8"
+                    )
             except OSError as exc:
                 messagebox.showerror("Could not write", str(exc))
                 return
@@ -351,33 +432,47 @@ class CustodianApp:
             self.permanent.set(False)
 
     def clean_selected(self) -> None:
-        chosen = [r for r in self._selected() if self._tag(r) == "eligible"]
+        chosen_projects = [r for r in self._selected_projects() if self._tag(r) == "eligible"]
+        chosen_engines = [r for r in self._selected_engines() if self._engine_tag(r) == "eligible"]
+        chosen = chosen_projects + chosen_engines
         if not chosen:
             messagebox.showinfo(
                 "Nothing to clean",
-                "Select one or more projects marked “ready to clean”.",
+                "Select one or more rows marked “ready to clean”, "
+                "in either the project list or the engine list.",
             )
             return
 
         total = sum(r.reclaimable_bytes for r in chosen)
         where = "deleted permanently" if self.permanent.get() else "moved to the Trash"
-        lines = "\n".join(
-            f"  {r.project.name} — {human(r.reclaimable_bytes)}" for r in chosen[:12]
-        )
-        if len(chosen) > 12:
-            lines += f"\n  ... and {len(chosen) - 12} more"
+        names = [
+            (r.project.name if isinstance(r, ProjectReport) else r.engine.label, r)
+            for r in chosen
+        ]
+        lines = "\n".join(f"  {name} — {human(r.reclaimable_bytes)}" for name, r in names[:12])
+        if len(names) > 12:
+            lines += f"\n  ... and {len(names) - 12} more"
         if not messagebox.askokcancel(
-            "Clean these projects?",
+            "Clean these?",
             f"{human(total)} will be {where}:\n\n{lines}\n\n"
-            "Authored content, Config and save games are never touched.",
+            "Authored content, Config, save games, and a launcher-installed "
+            "engine's own binaries are never touched.",
             icon=messagebox.WARNING,
         ):
             return
 
         reclaimed, failures, skipped = 0, [], []
         for report in chosen:
-            if safedelete.editor_is_running(report.project.root):
-                skipped.append(report.project.name)
+            guard_root = (
+                report.project.root
+                if isinstance(report, ProjectReport)
+                else report.engine.root
+            )
+            label = (
+                report.project.name if isinstance(report, ProjectReport) else report.engine.label
+            )
+            if safedelete.editor_is_running(guard_root):
+                skipped.append(label)
                 continue
             for size in report.sizes:
                 try:
@@ -390,14 +485,38 @@ class CustodianApp:
 
         message = f"Reclaimed {human(reclaimed)}."
         if skipped:
-            message += "\n\nSkipped (open in Unreal): " + ", ".join(skipped)
+            message += "\n\nSkipped (Unreal is open there): " + ", ".join(skipped)
         if failures:
             message += "\n\nFailed:\n" + "\n".join(failures[:8])
         messagebox.showinfo("Done", message)
         self.rescan()
 
 
+def _warn_if_tk_too_old() -> None:
+    """Tk 8.5 is known to render a blank window on modern macOS.
+
+    No error, no crash -- the process runs fine and the window simply never
+    draws. Found live: this shipped once already believed to be verified,
+    because every earlier screenshot attempt had captured a different window
+    and reported success. A user hitting a blank window has no way to know
+    it is a Tk version problem rather than something they did, so this says
+    so up front, in the terminal, before the window even opens.
+    """
+    version = tk.Tcl().eval("info patchlevel")
+    major, minor = (int(p) for p in version.split(".")[:2])
+    if (major, minor) < (8, 6):
+        print(
+            f"Warning: Tk {version} detected. Tk older than 8.6 is known to render "
+            "a blank window on modern macOS -- the process runs fine, but nothing "
+            "draws. If the window that opens is empty, this is why.\n"
+            "Fix: brew install python-tk@3.12 && "
+            "/opt/homebrew/opt/python@3.12/bin/python3.12 -m custodian.gui\n",
+            file=sys.stderr,
+        )
+
+
 def main() -> int:
+    _warn_if_tk_too_old()
     root = tk.Tk()
     CustodianApp(root)
     root.mainloop()

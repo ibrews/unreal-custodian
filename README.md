@@ -112,9 +112,20 @@ An unrecognized key in `targets` is a hard error rather than a silent no-op, so 
 python3 -m custodian.gui
 ```
 
-Sortable table of every project with its reclaimable size, last-touched date, engine version and eligibility; engine installs below; double-click to launch. The Trash/permanent choice is a checkbox, and "Never clean this" writes the `.ueclean.json` opt-out for you.
+![Unreal Custodian GUI](docs/media/gui.png)
 
-Note the GUI needs a Python built with `tkinter`. The CLI has no such requirement and runs on the Python that ships inside Unreal itself (`Engine/Binaries/ThirdParty/Python3/`) — that bundled interpreter has no `tkinter`, so it cannot run the GUI.
+Sortable table of every project with its reclaimable size, last-touched date, engine version and eligibility; sortable table of engine installs below it with the same fields, so a source build's 60+ GB is as reachable as any project — its Intermediate/Binaries stay behind an explicit checkbox, since reclaiming them costs a full engine rebuild. The Trash/permanent choice is a checkbox, and "Never clean this" writes the `.ueclean.json` opt-out for you.
+
+**The GUI needs a Python built with `tkinter` *and Tk 8.6 or newer*.** The CLI has no such requirement and runs on the Python that ships inside Unreal itself (`Engine/Binaries/ThirdParty/Python3/`) — that bundled interpreter has no `tkinter` at all, so it cannot run the GUI either way.
+
+On macOS specifically: the only tkinter Apple ships is bundled inside Xcode's Python 3.9 (`/usr/bin/python3`), and its Tk is 8.5 — old enough to hit a well-known blank/white-window bug on modern macOS (nothing renders, no error, the window just stays empty). If `python3 -m custodian.gui` gives you a blank window, that is almost certainly it. Fix:
+
+```bash
+brew install python-tk@3.12
+/opt/homebrew/opt/python@3.12/bin/python3.12 -m custodian.gui
+```
+
+That installs Tk 9 alongside Python 3.12, and the blank-window bug does not reproduce on it.
 
 ## Automating it
 

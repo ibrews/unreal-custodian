@@ -17,7 +17,7 @@ Verified end-to-end on two projects (`ThirdPersonClass` 8.7 GB → 359 MB, `GASP
 `.ueclean.json` next to the `.uproject`, layered over global defaults, committable so a team shares one policy. Unknown target keys are a hard error rather than a silent no-op.
 
 ### Phase 4 — GUI ✅
-`python3 -m custodian.gui`. Sortable table, engine list, launch/reveal, "Never clean this" writes the opt-out, Trash-vs-permanent checkbox. Scanning runs on a worker thread and streams results in.
+`python3 -m custodian.gui`. Sortable table, engine list, launch/reveal, "Never clean this" writes the opt-out, Trash-vs-permanent checkbox. Scanning runs on a worker thread and streams results in. Engine installs are independently selectable and cleanable, not just displayed — with the same "Include rebuildable Intermediate/Binaries" gate the CLI has behind `--engine-rebuildable`. Screenshot verified in the README.
 
 ### Engine installs ✅
 Not in the original plan, and it turned out to be the bigger half — a single source-built engine held more reclaimable output than an entire 96-project library. Gated on `InstalledBuild.txt` vs `SourceDistribution.txt` so a precompiled install never gives up its `Binaries`.
@@ -27,8 +27,8 @@ Not in the original plan, and it turned out to be the bigger half — a single s
 
 ## Not done
 
-### GUI screenshot for the README
-The GUI runs correctly and is verified; there is no screenshot of it. Capturing one headlessly kept grabbing whatever window was frontmost, because Tk's `-topmost` does not hold above other applications on macOS. Needs someone at the machine, or a proper window-id capture.
+### macOS: the only Apple-provided Python has a broken Tk
+Apple ships exactly one tkinter-capable interpreter (`/usr/bin/python3`, Xcode's bundled Python 3.9), and its Tk is 8.5 — old enough to hit a known blank/white-window rendering bug on modern macOS: the GUI launches, the process is healthy, no error is logged, and the window simply never draws its contents. This was found live, not by inspection — the window rendered blank on screen while every earlier attempt to verify it had been capturing the *wrong window entirely* and reporting success. `brew install python-tk@3.12` (Tk 9) is the confirmed fix and is now documented in the README, but the tool does not detect or warn about an old Tk itself, so a user without Homebrew still hits this blind. Worth a startup check that names the problem instead of leaving them looking at an empty window.
 
 ### Scheduled automation
 The README documents running `custodian clean --apply` from `launchd` or Task Scheduler, but there is no installer. Should be `custodian schedule --install` writing the plist / scheduled task, and `--uninstall`.
