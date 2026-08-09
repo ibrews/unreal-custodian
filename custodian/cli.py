@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from . import policy as policy_mod
+from . import runlog
 from . import safedelete
 from .discovery import find_engine_installs, find_projects, index_available
 from .sizing import (
@@ -258,40 +259,55 @@ def cmd_clean(args: argparse.Namespace) -> int:
     destination = (
         "PERMANENTLY (no undo)" if args.permanent else "to the Trash / Recycle Bin"
     )
-    print(f"\n{verb} {destination} from {len(planned)} item(s):\n")
+
+    log = runlog.RunLog()
+
+    def emit(line: str = "") -> None:
+        print(line)
+        log.write(line)
+
+    emit(f"\n{verb} {destination} from {len(planned)} item(s):\n")
 
     reclaimed = 0
+    failures = 0
     for report in planned:
         name = _item_name(report)
         root = _item_root(report)
         if safedelete.editor_is_running(root):
-            print(f"  SKIP {name}: an Unreal process has this open")
+            emit(f"  SKIP {name}: an Unreal process has this open")
             continue
 
-        print(f"  {name}  ({human(report.reclaimable_bytes)})")
+        emit(f"  {name}  ({human(report.reclaimable_bytes)})")
         for size in report.sizes:
             rel = size.path.relative_to(root).as_posix()
-            print(f"      {human(size.bytes):>9}  {rel}")
+            emit(f"      {human(size.bytes):>9}  {rel}")
             try:
                 safedelete.reclaim(
                     size.path, dry_run=not args.apply, permanent=args.permanent
                 )
             except OSError as exc:
-                print(f"      FAILED: {exc}")
+                emit(f"      FAILED: {exc}")
+                failures += 1
                 continue
             reclaimed += size.bytes
 
-    print()
+    emit()
     if args.apply and args.permanent:
-        print(f"Permanently deleted {human(reclaimed)}. Disk space is freed immediately.")
+        emit(f"Permanently deleted {human(reclaimed)}. Disk space is freed immediately.")
     elif args.apply:
-        print(
+        emit(
             f"Reclaimed {human(reclaimed)} to the Trash / Recycle Bin (recoverable).\n"
             "Note: on the same volume this frees no disk space until the bin is "
             "emptied. Use --permanent to free it immediately."
         )
     else:
-        print(f"Dry run. {human(reclaimed)} would be reclaimed. Re-run with --apply.")
+        emit(f"Dry run. {human(reclaimed)} would be reclaimed. Re-run with --apply.")
+
+    if failures:
+        emit(f"\n{failures} item(s) failed -- see above for the full list.")
+    log_path = log.close()
+    if not args.quiet:
+        print(f"\nFull log: {log_path}")
     return 0
 
 

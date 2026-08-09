@@ -23,15 +23,55 @@ class DeletionRefused(RuntimeError):
     """Raised when it is not safe to proceed."""
 
 
+def _trash_name_candidates(trash_dir: Path, path: Path):
+    """An unending sequence of candidate destination names for `path` in `trash_dir`.
+
+    Unreal projects overwhelmingly reuse the same folder names --
+    "DerivedDataCache", "Intermediate", "Binaries" -- so cleaning several
+    projects in one run means constant collisions on the bare name. The old
+    approach appended a second-resolution timestamp on the FIRST collision;
+    with several items processed inside the same wall-clock second, two of
+    them would compute the identical stamped name and the second `move`
+    would fail outright with "already exists" (found live, 2026-08-09 --
+    real cleanup run, several projects' DerivedDataCache all landed on one
+    second). Preferring `<project>-<name>` fixes the common case AND makes
+    the Trash readable afterward (you can tell whose DerivedDataCache it
+    was); a counter is the guaranteed-unique fallback for anything that
+    still collides.
+    """
+    yield trash_dir / path.name
+    qualified = f"{path.parent.name}-{path.name}"
+    yield trash_dir / qualified
+    n = 2
+    while True:
+        yield trash_dir / f"{qualified}-{n}"
+        n += 1
+
+
+def _move_into_trash(path: Path, trash_dir: Path) -> Path:
+    """Move `path` into `trash_dir` under a name nothing else already holds.
+
+    Checking `exists()` first skips the obviously-taken names cheaply; still
+    catching `shutil.Error` around the actual move covers the rest (another
+    item claiming the same name between the check and this call -- sequential
+    within one run, but the check-then-act gap is real) without depending on
+    exactly reproducing shutil's error-message wording as the sole guard.
+    """
+    for dest in _trash_name_candidates(trash_dir, path):
+        if dest.exists():
+            continue
+        try:
+            shutil.move(str(path), str(dest))
+            return dest
+        except shutil.Error:
+            continue  # taken since the check above; try the next candidate
+
+
 def _trash_macos(path: Path) -> None:
     trash = Path.home() / ".Trash"
     trash.mkdir(exist_ok=True)
-    dest = trash / path.name
-    if dest.exists():
-        stamp = datetime.now().strftime("%Y-%m-%d %H.%M.%S")
-        dest = trash / f"{path.stem} {stamp}{path.suffix}"
     try:
-        shutil.move(str(path), str(dest))
+        _move_into_trash(path, trash)
     except OSError as exc:
         # Cross-volume moves into ~/.Trash fail; Finder handles those itself.
         if exc.errno != 18:  # EXDEV
@@ -84,17 +124,20 @@ def _trash_linux(path: Path) -> None:
     files.mkdir(parents=True, exist_ok=True)
     info.mkdir(parents=True, exist_ok=True)
 
-    name = path.name
-    if (files / name).exists():
-        name = f"{path.stem}.{datetime.now():%Y%m%d%H%M%S}{path.suffix}"
-    # Write the .trashinfo first so the entry is never orphaned.
-    (info / f"{name}.trashinfo").write_text(
-        "[Trash Info]\n"
-        f"Path={path.resolve()}\n"
-        f"DeletionDate={datetime.now():%Y-%m-%dT%H:%M:%S}\n",
-        encoding="utf-8",
-    )
-    shutil.move(str(path), str(files / name))
+    # Reserve the name by writing .trashinfo first (same "no orphaned entry"
+    # guarantee as before), but pick it the same collision-proof way as macOS
+    # -- see _trash_name_candidates.
+    for dest in _trash_name_candidates(files, path):
+        if dest.exists() or (info / f"{dest.name}.trashinfo").exists():
+            continue
+        (info / f"{dest.name}.trashinfo").write_text(
+            "[Trash Info]\n"
+            f"Path={path.resolve()}\n"
+            f"DeletionDate={datetime.now():%Y-%m-%dT%H:%M:%S}\n",
+            encoding="utf-8",
+        )
+        shutil.move(str(path), str(dest))
+        return
 
 
 def send_to_trash(path: Path) -> None:

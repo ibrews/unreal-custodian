@@ -31,9 +31,14 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 from . import policy as policy_mod
+from . import runlog
 from . import safedelete
 from .discovery import find_engine_installs, find_projects
 from .sizing import EngineReport, ProjectReport, free_bytes, human, scan_engine, scan_project
+
+
+def _display_name(report) -> str:
+    return report.project.name if isinstance(report, ProjectReport) else report.engine.label
 
 
 class CustodianApp:
@@ -47,6 +52,7 @@ class CustodianApp:
         self.engine_reports: dict[str, EngineReport] = {}
         self.results: queue.Queue = queue.Queue()
         self.scanning = False
+        self.cleaning = False
 
         self.permanent = tk.BooleanVar(value=False)
         # Two independent checkboxes, not one: reclaiming Engine/Intermediate
@@ -169,7 +175,9 @@ class CustodianApp:
         self.tree.grid(row=0, column=0, sticky=tk.NSEW)
         vsb.grid(row=0, column=1, sticky=tk.NS)
 
-        # Eligibility is the thing a user needs to read at a glance.
+        # Eligibility is the thing a user needs to read at a glance -- see the
+        # legend row below the buttons, which is the only place that color is
+        # actually explained.
         self.tree.tag_configure("eligible", foreground="#b3261e")
         self.tree.tag_configure("blocked", foreground="#8a8a8a")
         self.tree.bind("<Double-1>", lambda _e: self.launch_project())
@@ -211,6 +219,16 @@ class CustodianApp:
             variable=self.hide_clean,
             command=self._apply_project_filter,
         ).pack(side=tk.RIGHT)
+
+        legend = ttk.Frame(frame)
+        legend.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+        ttk.Label(legend, text="●", foreground="#b3261e").pack(side=tk.LEFT)
+        ttk.Label(legend, text="ready to clean").pack(side=tk.LEFT, padx=(2, 12))
+        ttk.Label(legend, text="●", foreground="#8a8a8a").pack(side=tk.LEFT)
+        ttk.Label(
+            legend, text="not eligible right now — see the Status column for why",
+            foreground="#8a8a8a",
+        ).pack(side=tk.LEFT, padx=(2, 0))
 
     def _build_engines(self, parent: ttk.Frame) -> None:
         frame = ttk.Frame(parent)
@@ -276,6 +294,16 @@ class CustodianApp:
             variable=self.engine_binaries,
             command=self.rescan,
         ).pack(side=tk.TOP, anchor=tk.W)
+
+        legend = ttk.Frame(frame)
+        legend.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+        ttk.Label(legend, text="●", foreground="#b3261e").pack(side=tk.LEFT)
+        ttk.Label(legend, text="ready to clean").pack(side=tk.LEFT, padx=(2, 12))
+        ttk.Label(legend, text="●", foreground="#8a8a8a").pack(side=tk.LEFT)
+        ttk.Label(
+            legend, text="not eligible right now — see the Status column for why",
+            foreground="#8a8a8a",
+        ).pack(side=tk.LEFT, padx=(2, 0))
 
     # ---------------------------------------------------------------- scanning
 
@@ -348,6 +376,10 @@ class CustodianApp:
                 elif kind == "done":
                     self.scanning = False
                     self._refresh_summary()
+                elif kind == "clean_progress":
+                    self._on_clean_progress(*payload)
+                elif kind == "clean_done":
+                    self._on_clean_done(*payload)
         except queue.Empty:
             pass
         self.root.after(80, self._drain)
@@ -645,6 +677,8 @@ class CustodianApp:
             self.permanent.set(False)
 
     def clean_selected(self) -> None:
+        if self.cleaning:
+            return
         chosen = self._eligible_selection()
         if not chosen:
             messagebox.showinfo(
@@ -656,10 +690,7 @@ class CustodianApp:
 
         total = sum(r.reclaimable_bytes for r in chosen)
         where = "deleted permanently" if self.permanent.get() else "moved to the Trash"
-        names = [
-            (r.project.name if isinstance(r, ProjectReport) else r.engine.label, r)
-            for r in chosen
-        ]
+        names = [(_display_name(r), r) for r in chosen]
         lines = "\n".join(f"  {name} — {human(r.reclaimable_bytes)}" for name, r in names[:12])
         if len(names) > 12:
             lines += f"\n  ... and {len(names) - 12} more"
@@ -672,33 +703,116 @@ class CustodianApp:
         ):
             return
 
+        self._start_clean(chosen, total)
+
+    def _start_clean(self, chosen: list, total_bytes: int) -> None:
+        """Runs the actual reclaim off the main thread.
+
+        A real cleanup takes one to five minutes -- doing this synchronously
+        on the Tk main thread (the original implementation) freezes the whole
+        window for that entire time with no way to tell "still working" from
+        "hung". Same fix, same reason, as the scan getting a worker thread
+        earlier: mirrors that exact architecture (worker -> queue -> `after`
+        poll on the main thread) rather than inventing a second pattern.
+        """
+        self.cleaning = True
+        self.cancel_requested = threading.Event()
+        self.clean_button.configure(state=tk.DISABLED)
+
+        self.progress_dialog = tk.Toplevel(self.root)
+        self.progress_dialog.title("Cleaning")
+        self.progress_dialog.transient(self.root)
+        self.progress_dialog.protocol("WM_DELETE_WINDOW", lambda: None)  # no accidental close
+        self.progress_dialog.resizable(False, False)
+
+        ttk.Label(self.progress_dialog, text="Reclaiming disk space...", font=("", 11, "bold")).pack(
+            padx=20, pady=(16, 6), anchor=tk.W
+        )
+        self.progress_label = tk.StringVar(value="Starting...")
+        ttk.Label(self.progress_dialog, textvariable=self.progress_label).pack(
+            padx=20, anchor=tk.W
+        )
+        self.progress_bar = ttk.Progressbar(
+            self.progress_dialog, orient=tk.HORIZONTAL, length=380,
+            mode="determinate", maximum=max(total_bytes, 1),
+        )
+        self.progress_bar.pack(padx=20, pady=(8, 4))
+        self.progress_bytes_label = tk.StringVar(value=f"0 / {human(total_bytes)}")
+        ttk.Label(self.progress_dialog, textvariable=self.progress_bytes_label).pack(
+            padx=20, anchor=tk.E, pady=(0, 10)
+        )
+        ttk.Button(
+            self.progress_dialog, text="Cancel remaining",
+            command=self.cancel_requested.set,
+        ).pack(pady=(0, 16))
+
+        self.progress_dialog.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - self.progress_dialog.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - self.progress_dialog.winfo_height()) // 2
+        self.progress_dialog.geometry(f"+{x}+{y}")
+        self.progress_dialog.grab_set()  # modal: block interaction with the tables mid-delete
+
+        permanent = self.permanent.get()
+        threading.Thread(
+            target=self._clean_worker, args=(chosen, permanent), daemon=True
+        ).start()
+
+    def _clean_worker(self, chosen: list, permanent: bool) -> None:
+        """Runs off the main thread; progress and the final result go through
+        the same results queue the scan worker already uses."""
+        log = runlog.RunLog()
         reclaimed, failures, skipped = 0, [], []
-        for report in chosen:
-            guard_root = (
-                report.project.root
-                if isinstance(report, ProjectReport)
-                else report.engine.root
-            )
-            label = (
-                report.project.name if isinstance(report, ProjectReport) else report.engine.label
-            )
-            if safedelete.editor_is_running(guard_root):
-                skipped.append(label)
-                continue
-            for size in report.sizes:
-                try:
-                    safedelete.reclaim(
-                        size.path, dry_run=False, permanent=self.permanent.get()
-                    )
-                    reclaimed += size.bytes
-                except OSError as exc:
-                    failures.append(f"{size.path}: {exc}")
+        try:
+            for report in chosen:
+                if self.cancel_requested.is_set():
+                    log.write(f"CANCELLED before {_display_name(report)}")
+                    break
+
+                guard_root = (
+                    report.project.root
+                    if isinstance(report, ProjectReport)
+                    else report.engine.root
+                )
+                label = _display_name(report)
+                if safedelete.editor_is_running(guard_root):
+                    skipped.append(label)
+                    log.write(f"SKIP {label}: an Unreal process has this open")
+                    continue
+
+                for size in report.sizes:
+                    if self.cancel_requested.is_set():
+                        break
+                    self.results.put(("clean_progress", (label, size.path.name, size.bytes)))
+                    try:
+                        safedelete.reclaim(size.path, dry_run=False, permanent=permanent)
+                        reclaimed += size.bytes
+                        log.write(f"  OK    {label}: {size.path} ({human(size.bytes)})")
+                    except OSError as exc:
+                        failures.append(f"{size.path}: {exc}")
+                        log.write(f"  FAILED {label}: {size.path}: {exc}")
+        finally:
+            log.write(f"\nReclaimed {human(reclaimed)}. {len(failures)} failure(s).")
+            log_path = log.close()
+            self.results.put(("clean_done", (reclaimed, failures, skipped, log_path)))
+
+    def _on_clean_progress(self, label: str, item_name: str, item_bytes: int) -> None:
+        self.progress_label.set(f"{label} — {item_name}")
+        new_value = self.progress_bar["value"] + item_bytes
+        self.progress_bar["value"] = new_value
+        self.progress_bytes_label.set(f"{human(int(new_value))} / {human(int(self.progress_bar['maximum']))}")
+
+    def _on_clean_done(self, reclaimed: int, failures: list, skipped: list, log_path) -> None:
+        self.cleaning = False
+        self.progress_dialog.grab_release()
+        self.progress_dialog.destroy()
+        self.clean_button.configure(state=tk.NORMAL)
 
         message = f"Reclaimed {human(reclaimed)}."
         if skipped:
             message += "\n\nSkipped (Unreal is open there): " + ", ".join(skipped)
         if failures:
-            message += "\n\nFailed:\n" + "\n".join(failures[:8])
+            message += "\n\nFailed (first 8 of {}):\n".format(len(failures)) + "\n".join(failures[:8])
+        message += f"\n\nFull log: {log_path}"
         messagebox.showinfo("Done", message)
         self.rescan()
 

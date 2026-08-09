@@ -101,3 +101,57 @@ def test_permanent_deletion_leaves_nothing_behind(tmp_path: Path) -> None:
     (target / "nested" / "artifact.bin").write_bytes(b"x")
     safedelete.reclaim(target, dry_run=False, permanent=True)
     assert not target.exists()
+
+
+def test_same_named_folders_from_different_projects_do_not_collide(tmp_path: Path) -> None:
+    """Real failure, 2026-08-09: cleaning several projects in one run, each with
+    a directory literally named "DerivedDataCache" (the common case -- Unreal
+    projects all reuse the same folder names), landed two of them on the same
+    second-resolution timestamp and the second `move` failed outright with
+    "already exists". Both must now land, disambiguated by project name.
+    """
+    trash = tmp_path / "Trash"
+    trash.mkdir()
+
+    project_a = tmp_path / "ProjectA" / "DerivedDataCache"
+    project_a.mkdir(parents=True)
+    project_b = tmp_path / "ProjectB" / "DerivedDataCache"
+    project_b.mkdir(parents=True)
+
+    dest_a = safedelete._move_into_trash(project_a, trash)
+    dest_b = safedelete._move_into_trash(project_b, trash)
+
+    assert dest_a != dest_b
+    assert dest_a.exists() and dest_b.exists()
+    assert not project_a.exists() and not project_b.exists()
+
+
+def test_three_way_collision_falls_back_to_a_counter(tmp_path: Path) -> None:
+    """Even the project-qualified name can collide -- e.g. cleaning the same
+    project twice, or two projects that happen to share a parent directory
+    name. The counter fallback must still find a free slot rather than fail.
+    """
+    trash = tmp_path / "Trash"
+    trash.mkdir()
+    (trash / "DerivedDataCache").mkdir()
+    (trash / "Same-DerivedDataCache").mkdir()
+
+    project = tmp_path / "Same" / "DerivedDataCache"
+    project.mkdir(parents=True)
+
+    dest = safedelete._move_into_trash(project, trash)
+    assert dest == trash / "Same-DerivedDataCache-2"
+    assert dest.exists()
+
+
+def test_trash_name_candidates_never_repeats(tmp_path: Path) -> None:
+    """The bug this replaces: a single retry that can itself collide. Assert
+    the sequence keeps producing genuinely new names past the first several.
+    """
+    project = tmp_path / "ProjectA" / "Intermediate"
+    seen = set()
+    gen = safedelete._trash_name_candidates(tmp_path / "Trash", project)
+    for _ in range(20):
+        candidate = next(gen)
+        assert candidate not in seen
+        seen.add(candidate)
