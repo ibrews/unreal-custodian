@@ -33,10 +33,23 @@ The GUI's first-ever Windows run (2026-08-09, via a sibling session on Lenovo ov
 ### macOS blank-window bug — root-caused and fixed ✅
 Apple ships exactly one tkinter-capable interpreter (`/usr/bin/python3`, Xcode's bundled Python 3.9), and its Tk is 8.5 — old enough to hit a known blank/white-window rendering bug on modern macOS. `brew install python-tk@3.12` (Tk 9) is the confirmed fix, documented in the README, checked for at GUI startup (prints a clear terminal warning instead of a silent empty window), and now also handled automatically by `packaging/macos/Unreal Custodian.app`, which searches for a good-Tk Python before launching.
 
+### Standalone builds, both platforms ✅
+The old `.app` wrapper exec'd whatever Python the user already had — fine from a clone, useless as a release download for someone with no Python at all. `packaging/macos/setup.py` (py2app) and `packaging/windows/build.bat` (PyInstaller, must run on real Windows — Archie was unreachable, a live session on Lenovo built and verified it, twice, catching two real bugs in `build.bat` in the process: an `--icon`/`--specpath` path-doubling `FileNotFoundError`, and a missing `errorlevel` check that let the script print "Built:" over a broken 281 KB stub) now produce genuine standalone binaries — both attached to the [v0.1.0 release](https://github.com/ibrews/unreal-custodian/releases/tag/v0.1.0). Signed on macOS with the Agile Lens Developer ID cert (Alex's call — no personal/ibrews cert exists); not yet notarized (needs an App Store Connect Issuer ID this session didn't have). Unsigned on Windows (no Authenticode infrastructure exists anywhere in the fleet).
+
+**Bonus:** building a real py2app bundle also fixed the "Dock shows Python, not Unreal Custodian" issue below, for free — turns out proper packaging was the actual fix, not a workaround.
+
+### macOS Dock identity — fixed by proper packaging ✅
+Was: Framework Python's own tiny `Python.app` stub re-asserts its bundle identity (`org.python.python`) on startup regardless of what launched it, so the thin shell-wrapper `.app` always showed "Python" in the Dock no matter how it was invoked — confirmed by copying the interpreter binary to a plain file inside the wrapper with no other `.app` anywhere in its path, and watching it re-exec back to its real install path anyway. A shell-script wrapper genuinely cannot defeat that.
+
+The py2app-built standalone app doesn't have this problem, because it isn't exec-ing into an *external* Python.app at all — its own Python is bundled inside its own `Contents/Frameworks/`. Verified: copied the built `.app` to `/tmp`, launched it from there with zero dependency on the dev checkout, and confirmed via `System Events` it reports as `Unreal Custodian` / `com.alexcoulombepresents.unreal-custodian` — not `Python` / `org.python.python`.
+
 ## Not done
 
-### macOS Dock still shows "Python", not "Unreal Custodian"
-The `.app` bundle (`packaging/macos/Unreal Custodian.app`) fixes double-click launching and automatic Tk-version selection, but not this. Framework Python ships its own tiny `Python.app` stub so Tk can register with the window server, and that stub re-asserts its own bundle identity (`org.python.python`) to macOS on startup regardless of what launched it — confirmed by copying the interpreter binary to a plain file inside the wrapper bundle (no other `.app` anywhere in its path) and watching it re-exec back to its real Homebrew install path anyway. A shell-script wrapper can't defeat that. The real fix is `py2app`, a proper build step that produces a genuinely standalone bundle — not set up here yet. The window's own title bar is unaffected (`root.title()` always says "Unreal Custodian" correctly); only the Dock badge/tooltip is wrong.
+### macOS notarization
+Signed, not notarized — Gatekeeper still shows a one-time "unverified developer" warning on first launch (`spctl` correctly reports "rejected / Unnotarized Developer ID"). Needs an App Store Connect Issuer ID (lives in gitignored `asc_key.local` files per existing project convention) to run `xcrun notarytool submit --wait` + `xcrun stapler staple`. Blocked on getting that piece of information, not on any remaining engineering work.
+
+### Windows code signing
+No Authenticode certificate or signing infrastructure exists anywhere in the fleet for Windows binaries (only Apple Developer certs, for the macOS/iOS side). `UnrealCustodian.exe` ships unsigned — SmartScreen shows an "unknown publisher" click-through, a real but much smaller speed bump than macOS's Gatekeeper block on an unnotarized app. Getting a proper cert is a separate cost/setup decision, not started.
 
 ### Scheduled automation
 The README documents running `custodian clean --apply` from `launchd` or Task Scheduler, but there is no installer. Should be `custodian schedule --install` writing the plist / scheduled task, and `--uninstall`.
@@ -57,4 +70,4 @@ On a Windows machine without Everything running, discovery falls back to a whole
 - **Per-drive pressure.** Thresholds are currently evaluated against the volume holding `$HOME`; projects on other volumes should be judged against their own.
 - **Cache the scan.** Sizes are recomputed every run; an mtime-invalidated cache would make repeat runs instant.
 - **Prune deep, not wide.** `Saved/Screenshots` and `Saved/Autosaves` accumulate for years; per-file age policies rather than whole-directory ones.
-- **py2app packaging.** Would fix the Dock identity issue above properly, and is also the standard path to a signed, notarized, distributable macOS build if this ever needs to leave "clone and run."
+- **CI-built releases.** Both packaging builds are currently manual (and the Windows one needed real hardware this session didn't have direct access to). A GitHub Actions workflow building both platforms on tag push would remove the dependency on finding a live Windows session next time.

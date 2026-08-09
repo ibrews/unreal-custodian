@@ -29,13 +29,20 @@ A second project, `ThirdPersonClass`, where the caches dominated — 8.7 GB down
 
 ## Install
 
-Requires Python 3.9+. No dependencies for the CLI.
+**Just want the app? Grab a standalone build from the [latest release](https://github.com/ibrews/unreal-custodian/releases/latest)** — `Unreal.Custodian.macOS.zip` or `UnrealCustodian.exe`. No Python required either way.
+
+- macOS: unzip, right-click → Open the first time (signed, not yet notarized — Gatekeeper asks once)
+- Windows: unsigned — SmartScreen shows an "unknown publisher" click-through on first run
+
+Or run from source — no install needed for the CLI, and this is the only option if you want the latest unreleased fixes:
 
 ```bash
 git clone https://github.com/ibrews/unreal-custodian.git
 cd unreal-custodian
 python3 -m custodian.cli report
 ```
+
+Requires Python 3.9+. No dependencies for the CLI.
 
 On Windows, install [Everything](https://www.voidtools.com/downloads/#cli) and put `es.exe` on your `PATH` (or beside this README) for instant project discovery. On macOS, Spotlight is used and there is nothing to install. Without either, a slower filesystem walk is used as a fallback.
 
