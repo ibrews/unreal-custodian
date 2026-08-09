@@ -12,13 +12,19 @@ cd /d "%~dp0..\.."
 
 py -3 -m PyInstaller --noconfirm --windowed --onefile ^
   --name "UnrealCustodian" ^
-  --icon "packaging\windows\icon.ico" ^
+  --icon "icon.ico" ^
   --paths . ^
   --hidden-import tkinter ^
   --distpath "packaging\windows\dist" ^
   --workpath "packaging\windows\build" ^
   --specpath "packaging\windows" ^
   "packaging\windows\launch_gui.py"
+
+if errorlevel 1 (
+  echo.
+  echo Build FAILED - see PyInstaller output above.
+  exit /b 1
+)
 
 echo.
 echo Built: packaging\windows\dist\UnrealCustodian.exe
