@@ -1,9 +1,13 @@
 #!/bin/bash
-# Regenerates icon.icns from icon_source.html. Requires Chrome (for headless
-# rendering) and macOS's built-in iconutil. Re-run this after editing
-# icon_source.html, then re-run build_app.sh to pick it up everywhere it's
-# used (the py2app bundle and the thin shell-wrapper .app both reference this
-# one file rather than keeping their own copies).
+# Regenerates icon.icns from icon_source.html, plus custodian/icon.png --
+# the same artwork at a plain size Tk can load directly, used to set the
+# actual window/taskbar icon at runtime (see gui.py's _set_window_icon;
+# the OS-level bundle icon this script also produces doesn't cover that).
+# Requires Chrome (for headless rendering) and macOS's built-in iconutil.
+# Re-run this after editing icon_source.html, then re-run build_app.sh to
+# pick it up everywhere it's used (the py2app bundle and the thin
+# shell-wrapper .app both reference this one file rather than keeping
+# their own copies).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,4 +31,7 @@ cp "$WORK/icon_1024.png" "$ICONSET/icon_512x512@2x.png"
 
 iconutil -c icns "$ICONSET" -o "$HERE/icon.icns"
 cp "$HERE/icon.icns" "$HERE/Unreal Custodian.app/Contents/Resources/icon.icns"
-echo "wrote $HERE/icon.icns (and refreshed the wrapper .app's copy)"
+
+sips -z 256 256 "$WORK/icon_1024.png" --out "$HERE/../../custodian/icon.png" >/dev/null
+
+echo "wrote $HERE/icon.icns (and refreshed the wrapper .app's copy), and custodian/icon.png"

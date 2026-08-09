@@ -41,12 +41,42 @@ def _display_name(report) -> str:
     return report.project.name if isinstance(report, ProjectReport) else report.engine.label
 
 
+def _set_window_icon(root: tk.Tk) -> None:
+    """Set the title-bar/taskbar icon explicitly.
+
+    A packaged build's OS-level icon (Info.plist on macOS, --icon on
+    PyInstaller) only decorates the app bundle/exe file -- the actual window
+    decoration Windows and Linux draw comes from a WM_SETICON call, which Tk
+    never makes unless told to. Without this, every platform but macOS shows
+    Tk's own default icon regardless of packaging, source checkout included.
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    base = Path(meipass) / "custodian" if meipass else Path(__file__).resolve().parent
+    icon_path = base / "icon.png"
+    try:
+        photo = tk.PhotoImage(file=str(icon_path))
+        root.iconphoto(True, photo)
+        root._icon_ref = photo  # PhotoImage must outlive the call or Tk drops the icon
+    except (tk.TclError, OSError):
+        pass
+
+
 class CustodianApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         root.title("Unreal Custodian")
-        root.geometry("1180x780")
+        # Width and height alone, with no position, let macOS fall back to a
+        # cached frame from a previous window sharing the same app identity
+        # (confirmed: a bare "1180x780" reliably reopened at ~108x130 after a
+        # few relaunches under python.org's generic "Python" launcher) -- an
+        # explicit position bypasses that restoration path entirely.
+        w, h = 1180, 780
+        root.update_idletasks()
+        x = max(0, (root.winfo_screenwidth() - w) // 2)
+        y = max(0, (root.winfo_screenheight() - h) // 3)
+        root.geometry(f"{w}x{h}+{x}+{y}")
         root.minsize(900, 580)
+        _set_window_icon(root)
 
         self.reports: dict[str, ProjectReport] = {}
         self.engine_reports: dict[str, EngineReport] = {}
@@ -86,20 +116,32 @@ class CustodianApp:
         outer = ttk.Frame(self.root, padding=10)
         outer.pack(fill=tk.BOTH, expand=True)
 
-        # A PanedWindow rather than fixed grid rows: with as few as two engine
-        # installs, a fixed-height allocation for that section is mostly empty
-        # background. The sash lets a user reclaim that space by hand instead
-        # of the tool guessing a split that's wrong for their machine.
-        paned = ttk.PanedWindow(outer, orient=tk.VERTICAL)
+        # tk.PanedWindow rather than ttk.PanedWindow: with as few as two
+        # engine installs, a fixed-height allocation for that section is
+        # mostly empty background, so a draggable split matters -- but ttk's
+        # version draws its sash as a near-invisible hairline on some
+        # platforms/themes (reported on Windows: indistinguishable from no
+        # sash at all). The classic tk widget supports a real raised, grip-
+        # handled sash cross-platform, at the cost of it not picking up ttk
+        # theming for that one groove.
+        sash_bg = ttk.Style().lookup("TFrame", "background") or None
+        paned = tk.PanedWindow(
+            outer, orient=tk.VERTICAL, sashwidth=8, sashrelief=tk.RAISED,
+            sashpad=1, showhandle=True, handlesize=12, bd=0, bg=sash_bg,
+        )
         paned.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.paned = paned
+        paned.bind("<Double-Button-1>", self._on_paned_double_click)
 
-        top = ttk.Frame(paned)
+        self.top_frame = top = ttk.Frame(paned)
         bottom = ttk.Frame(paned)
-        paned.add(top, weight=3)
-        paned.add(bottom, weight=1)
-        # Give the projects pane most of the space by default; the sash is
-        # still fully draggable afterward.
-        self.root.after(60, lambda: self._set_initial_sash(paned))
+        paned.add(top, minsize=200, stretch="always")
+        paned.add(bottom, minsize=140, stretch="always")
+        # Fit the projects pane to however many rows this machine actually
+        # has (a handful on one machine, hundreds on another) rather than a
+        # fixed guess that's wrong for most people either way. Re-run once
+        # the first scan finishes, when the row count is known for real.
+        self.root.after(60, self._autofit_sash)
 
         ttk.Label(top, text="Unreal Projects", font=("", 13, "bold")).pack(
             side=tk.TOP, anchor=tk.W, pady=(0, 4)
@@ -143,10 +185,31 @@ class CustodianApp:
         )
         self.clean_button.pack(side=tk.RIGHT)
 
-    def _set_initial_sash(self, paned: ttk.PanedWindow) -> None:
-        total = paned.winfo_height()
-        if total > 100:
-            paned.sashpos(0, int(total * 0.72))
+    # Cap how many rows the projects pane will grow to fit -- a machine with
+    # hundreds of projects should scroll, not squeeze the engines pane to a
+    # sliver or blow past the screen.
+    _AUTOFIT_MAX_ROWS = 18
+
+    def _autofit_sash(self) -> None:
+        """Size the projects pane to its actual row count, not a fixed guess."""
+        visible_rows = len(self.tree.get_children())
+        self.tree["height"] = max(3, min(visible_rows, self._AUTOFIT_MAX_ROWS))
+        self.root.update_idletasks()
+        total = self.paned.winfo_height()
+        if total <= 100:
+            return
+        ideal_top = self.top_frame.winfo_reqheight()
+        pos = max(160, min(ideal_top, total - 140))
+        self.paned.sash_place(0, 0, pos)
+
+    def _on_paned_double_click(self, event: tk.Event) -> None:
+        """Double-clicking the sash itself snaps it back to auto-fit."""
+        try:
+            sash_y = self.paned.sash_coord(0)[1]
+        except tk.TclError:
+            return
+        if abs(event.y - sash_y) <= 8:
+            self._autofit_sash()
 
     def _build_projects(self, parent: ttk.Frame) -> None:
         frame = ttk.Frame(parent)
@@ -376,6 +439,7 @@ class CustodianApp:
                 elif kind == "done":
                     self.scanning = False
                     self._refresh_summary()
+                    self._autofit_sash()
                 elif kind == "clean_progress":
                     self._on_clean_progress(*payload)
                 elif kind == "clean_done":

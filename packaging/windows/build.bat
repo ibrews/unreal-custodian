@@ -13,6 +13,7 @@ cd /d "%~dp0..\.."
 py -3 -m PyInstaller --noconfirm --windowed --onefile ^
   --name "UnrealCustodian" ^
   --icon "icon.ico" ^
+  --add-data "custodian\icon.png;custodian" ^
   --paths . ^
   --hidden-import tkinter ^
   --distpath "packaging\windows\dist" ^
