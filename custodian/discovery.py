@@ -139,10 +139,12 @@ def _index_search(pattern: str, *, scan_root: str | None = None) -> list[Path] |
         if not es:
             return None
         # Request only the full path so that names containing spaces cannot be
-        # mis-split by the caller. CUSTODIAN_PROJECT_SCAN_ROOT is not wired up
-        # here -- unverified which es.exe flag scopes a search to one folder,
-        # and guessing wrong would silently return unscoped results for a
-        # feature whose whole point is scoping. macOS only for now.
+        # mis-split by the caller. CUSTODIAN_PROJECT_SCAN_ROOT is not passed
+        # to es.exe here -- unverified which flag scopes a search to one
+        # folder, and guessing wrong would silently return unscoped results.
+        # find_projects() filters the result set to scan_root afterward
+        # regardless, so an unscoped result from here is still safe, just
+        # slower than an es.exe-native scope would be.
         out = _run([es, pattern, "-full-path-and-name"])
         paths = [Path(line.strip()) for line in out.splitlines() if line.strip()]
         return paths or None
@@ -354,6 +356,14 @@ def _engine_association(uproject: Path) -> str:
     return str(data.get("EngineAssociation") or "not specified")
 
 
+def _is_within(path: Path, base: Path) -> bool:
+    try:
+        path.resolve().relative_to(base)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def find_projects(
     roots: list[Path] | None = None,
     engine_installs: list[EngineInstall] | None = None,
@@ -363,9 +373,21 @@ def find_projects(
         engine_installs = find_engine_installs(roots)
     engine_roots = [e.root for e in engine_installs]
 
-    found = _index_search("*.uproject", scan_root=_scan_root_override())
+    scan_root = _scan_root_override()
+    found = _index_search("*.uproject", scan_root=scan_root)
     if found is None:
-        found = _walk_search(roots or default_roots(), ".uproject")
+        walk_roots = [Path(scan_root)] if scan_root else (roots or default_roots())
+        found = _walk_search(walk_roots, ".uproject")
+
+    if scan_root is not None:
+        # Defense in depth, not just belt-and-suspenders: es.exe's own scoping
+        # support is unverified (see _index_search), so a result that reached
+        # here from the index path may not actually be scoped at all. A
+        # demo/screenshot restriction has to be airtight regardless of which
+        # discovery path produced `found`, not contingent on every path
+        # honoring it correctly.
+        base = Path(scan_root).resolve()
+        found = [p for p in found if _is_within(p, base)]
 
     # Deduplicate by resolved path. A path returned twice by the index is one
     # project, not zero -- last write wins.

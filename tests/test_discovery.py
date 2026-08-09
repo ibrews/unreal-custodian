@@ -176,3 +176,55 @@ def test_engine_discovery_is_never_scoped_by_the_project_scan_root(
 
     discovery.find_engine_installs(roots=[])
     assert seen["Build.version"] is None
+
+
+def test_scan_root_still_scopes_the_walk_fallback(tmp_path: Path, monkeypatch) -> None:
+    """Real gap, caught before it shipped: when no index is available (no
+    Everything on Windows, Spotlight disabled on a volume), find_projects()
+    fell back to _walk_search(roots or default_roots(), ...) -- which ignores
+    CUSTODIAN_PROJECT_SCAN_ROOT entirely and walks the whole machine. A demo
+    folder scope has to survive the no-index case, not just the indexed one."""
+    demo = tmp_path / "demo"
+    demo.mkdir()
+    inside = demo / "DemoProject" / "DemoProject.uproject"
+    inside.parent.mkdir(parents=True)
+    inside.write_text("{}", encoding="utf-8")
+
+    elsewhere = tmp_path / "real-work" / "RealClientProject" / "RealClientProject.uproject"
+    elsewhere.parent.mkdir(parents=True)
+    elsewhere.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setenv("CUSTODIAN_PROJECT_SCAN_ROOT", str(demo))
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: None)
+    monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [])
+    monkeypatch.setattr(
+        discovery,
+        "_walk_search",
+        lambda roots, suffix: [inside, elsewhere],  # a whole-drive walk finds both
+    )
+
+    projects = discovery.find_projects(roots=[], engine_installs=[])
+    assert [p.name for p in projects] == ["DemoProject"]
+
+
+def test_scan_root_filters_an_unscoped_index_result_too(tmp_path: Path, monkeypatch) -> None:
+    """es.exe's CUSTODIAN_PROJECT_SCAN_ROOT support is unverified (see
+    _index_search) -- if it ever returns results outside scan_root, those
+    must still be filtered out rather than trusted as already-scoped."""
+    demo = tmp_path / "demo"
+    demo.mkdir()
+    inside = demo / "DemoProject" / "DemoProject.uproject"
+    inside.parent.mkdir(parents=True)
+    inside.write_text("{}", encoding="utf-8")
+
+    elsewhere = tmp_path / "real-work" / "RealClientProject" / "RealClientProject.uproject"
+    elsewhere.parent.mkdir(parents=True)
+    elsewhere.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setenv("CUSTODIAN_PROJECT_SCAN_ROOT", str(demo))
+    # Index "succeeds" but (as on real es.exe today) ignores the scope.
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: [inside, elsewhere])
+    monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [])
+
+    projects = discovery.find_projects(roots=[], engine_installs=[])
+    assert [p.name for p in projects] == ["DemoProject"]
