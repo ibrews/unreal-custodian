@@ -151,12 +151,6 @@ python3 -m custodian.cli clean --apply
 
 With the default pressure threshold this is a no-op on a healthy disk and only acts when space is genuinely short.
 
-## Credits
-
-Project discovery — locating every `.uproject` and engine install on a machine via the OS file index rather than a filesystem walk, and reading engine versions out of `Build.version` — is built on **[Marshall (@nocxr)](https://github.com/nocxr)**'s Unreal Project Launcher. That index-first approach is the reason this tool is usable at all: a recursive search for `*.uproject` across a developer's drives takes minutes and times out, while Everything and Spotlight answer in well under a second. Thanks Marshall.
-
-Built by [@ibrews](https://github.com/ibrews) and [@nocxr](https://github.com/nocxr).
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
@@ -164,3 +158,9 @@ MIT — see [LICENSE](LICENSE).
 ## Support
 
 If you like seeing this kind of thing get built and shared, [donations are always welcome](https://www.alexcoulombepresents.com/support) — they buy hardware, render time, and the freedom to keep giving most of this away.
+
+## Credits
+
+Project discovery — locating every `.uproject` and engine install on a machine via the OS file index rather than a filesystem walk, and reading engine versions out of `Build.version` — is built on **[Marshall (@nocxr)](https://github.com/nocxr)**'s Unreal Project Launcher. That index-first approach is the reason this tool is usable at all: a recursive search for `*.uproject` across a developer's drives takes minutes and times out, while Everything and Spotlight answer in well under a second. Thanks Marshall.
+
+Built by [@ibrews](https://github.com/ibrews) and [@nocxr](https://github.com/nocxr).
