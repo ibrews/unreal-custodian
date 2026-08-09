@@ -8,7 +8,7 @@ folder_before.txt, folder_after.txt, apply.txt). Keeping this script in the
 repo means the screenshots can be regenerated rather than being undocumented
 one-off images that quietly go stale as the output format changes.
 
-Capture that plain-text output against build_demo_data.sh's synthetic
+Capture that plain-text output against build_demo_data.py's synthetic
 project tree, not a real one -- these screenshots are public, and a real
 project can carry a plugin/name that shouldn't be visible outside the repo.
 """
