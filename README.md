@@ -13,6 +13,10 @@ The Windows box had six source-built engines holding 60–75 GB each, and 17 GB 
 
 Epic themselves agree these folders are junk: Fab's 15 GB submission limit is specified *excluding* `Saved` and `Intermediate`.
 
+![Unreal Custodian GUI](docs/media/gui.png)
+
+A real Finder/Explorer-style app — [standalone download](https://github.com/ibrews/unreal-custodian/releases/latest) for Mac and Windows, no Python required — or the same thing from the terminal:
+
 ![custodian report](docs/media/report.png)
 
 ## Before and after
@@ -124,8 +128,6 @@ python3 -m custodian.gui
 ```
 
 On macOS you can also just double-click **`packaging/macos/Unreal Custodian.app`** — it finds a Python with modern Tk automatically, so you never hit the blank-window bug below just by launching it normally.
-
-![Unreal Custodian GUI](docs/media/gui.png)
 
 Sortable table of every project with its reclaimable size, last-touched date, engine version and eligibility; sortable table of engine installs below it with the same fields, so a source build's 60+ GB is as reachable as any project. The divider between the two tables is a draggable sash, not a fixed split — with only a couple of engines installed the bottom table doesn't need much room, so drag it down and give the project list the space. Treeview column borders are draggable the same way Finder's and Explorer's are.
 
