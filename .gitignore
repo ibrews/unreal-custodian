@@ -5,3 +5,9 @@ venv/
 .pytest_cache/
 es.exe
 .DS_Store
+packaging/macos/.build-venv/
+packaging/macos/build/
+packaging/macos/dist/
+packaging/windows/build/
+packaging/windows/dist/
+packaging/windows/*.spec
