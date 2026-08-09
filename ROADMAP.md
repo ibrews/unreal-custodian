@@ -25,8 +25,10 @@ The original design bundled both behind one flag/checkbox with one "costs a full
 ### Engine installs ✅
 Not in the original plan, and it turned out to be the bigger half — a single source-built engine held more reclaimable output than an entire 96-project library. Gated on `InstalledBuild.txt` vs `SourceDistribution.txt` so a precompiled install never gives up its `Binaries`.
 
-### Cross-platform validation — CLI ✅, GUI still open (see below)
-43 tests passing on macOS and Windows. The Windows run found six defects that local testing could not have (see the git log): `os.getuid()` doesn't exist there, `os.access` lies about directory writability, zero engines found until the launcher manifest was read directly, the no-index fallback walk didn't finish on a whole drive, an `AppData`-substring exclusion hid everything under a Windows temp dir, and `Build.version` search matched packaged games (two Fortnite installs) as "engines."
+### Cross-platform validation — CLI and GUI both ✅
+43 tests passing on macOS and Windows. The Windows CLI run found six defects that local testing could not have (see the git log): `os.getuid()` doesn't exist there, `os.access` lies about directory writability, zero engines found until the launcher manifest was read directly, the no-index fallback walk didn't finish on a whole drive, an `AppData`-substring exclusion hid everything under a Windows temp dir, and `Build.version` search matched packaged games (two Fortnite installs) as "engines."
+
+The GUI's first-ever Windows run (2026-08-09, via a sibling session on Lenovo over the fleet bus, since Archie was unreachable all round): clean launch, 10+ minute uptime with no crash, `MainWindowTitle` confirmed as "Unreal Custodian" via the OS itself — not just "the process didn't exit" — and an empty stderr, no traceback. No screenshot (desktop-control access was declined on that machine, unrelated to the app), but process-level + window-title confirmation from the OS is real evidence, not a guess.
 
 ### macOS blank-window bug — root-caused and fixed ✅
 Apple ships exactly one tkinter-capable interpreter (`/usr/bin/python3`, Xcode's bundled Python 3.9), and its Tk is 8.5 — old enough to hit a known blank/white-window rendering bug on modern macOS. `brew install python-tk@3.12` (Tk 9) is the confirmed fix, documented in the README, checked for at GUI startup (prints a clear terminal warning instead of a silent empty window), and now also handled automatically by `packaging/macos/Unreal Custodian.app`, which searches for a good-Tk Python before launching.
@@ -35,9 +37,6 @@ Apple ships exactly one tkinter-capable interpreter (`/usr/bin/python3`, Xcode's
 
 ### macOS Dock still shows "Python", not "Unreal Custodian"
 The `.app` bundle (`packaging/macos/Unreal Custodian.app`) fixes double-click launching and automatic Tk-version selection, but not this. Framework Python ships its own tiny `Python.app` stub so Tk can register with the window server, and that stub re-asserts its own bundle identity (`org.python.python`) to macOS on startup regardless of what launched it — confirmed by copying the interpreter binary to a plain file inside the wrapper bundle (no other `.app` anywhere in its path) and watching it re-exec back to its real Homebrew install path anyway. A shell-script wrapper can't defeat that. The real fix is `py2app`, a proper build step that produces a genuinely standalone bundle — not set up here yet. The window's own title bar is unaffected (`root.title()` always says "Unreal Custodian" correctly); only the Dock badge/tooltip is wrong.
-
-### GUI never verified on Windows
-Archie (the Windows test machine used for the CLI cross-platform pass) was unreachable for this entire round of work. The GUI's Windows-specific code paths (`os.startfile`, `explorer /select,`, the `Win64/UnrealEditor.exe` launch path) are written to the same pattern as the already-Windows-tested CLI code, but **"written correctly" is not the same claim as "verified running."** Nobody has actually launched `custodian.gui` on a Windows box. First thing to do next session.
 
 ### Scheduled automation
 The README documents running `custodian clean --apply` from `launchd` or Task Scheduler, but there is no installer. Should be `custodian schedule --install` writing the plist / scheduled task, and `--uninstall`.
