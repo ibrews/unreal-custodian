@@ -1,0 +1,55 @@
+#!/bin/bash
+# Finds a Python with Tk 8.6+ and runs the GUI on it -- avoids the blank-window
+# bug that Apple's bundled Tk 8.5 hits on modern macOS (see README "The GUI").
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HERE/../../../../.." && pwd)"
+
+good_tk() {
+  "$1" -c "
+import sys, tkinter
+major, minor = (int(p) for p in tkinter.Tcl().eval('info patchlevel').split('.')[:2])
+sys.exit(0 if (major, minor) >= (8, 6) else 1)
+" >/dev/null 2>&1
+}
+
+CANDIDATES=(
+  "/opt/homebrew/opt/python@3.13/bin/python3.13"
+  "/opt/homebrew/opt/python@3.12/bin/python3.12"
+  "/opt/homebrew/opt/python@3.11/bin/python3.11"
+  "/usr/local/opt/python@3.13/bin/python3.13"
+  "/usr/local/opt/python@3.12/bin/python3.12"
+  "/usr/local/opt/python@3.11/bin/python3.11"
+  "python3"
+  "/usr/bin/python3"
+)
+
+PY=""
+for candidate in "${CANDIDATES[@]}"; do
+  if command -v "$candidate" >/dev/null 2>&1 && good_tk "$candidate"; then
+    PY="$candidate"
+    break
+  fi
+done
+
+if [ -z "$PY" ]; then
+  osascript -e 'display dialog "Unreal Custodian needs a Python built with Tk 8.6 or newer, and none was found on this Mac.\n\nFix:\n  brew install python-tk@3.12\n\nThen relaunch this app." with title "Unreal Custodian" buttons {"OK"} default button "OK" with icon caution'
+  exit 1
+fi
+
+# NOTE on the Dock icon/name: Framework Python ships its own tiny Python.app
+# stub so Tk/AppKit can register with the window server, and that stub
+# self-re-execs to its true install path on startup regardless of how or from
+# where it was invoked -- confirmed by tracing it, including copying the
+# binary to a plain file inside this bundle (no other .app in its path) and
+# watching it re-exec back to the original Homebrew Cellar path anyway. That
+# defeats a shell-script wrapper: while the GUI is running, the Dock will
+# still show "Python" and the generic Python icon, not this bundle's. What
+# this launcher DOES genuinely fix is double-click convenience and Tk version
+# safety -- it finds a Python with modern Tk automatically, so a user never
+# hits the blank-window bug from just double-clicking. The real fix for the
+# Dock identity is packaging with py2app, which is a separate build step not
+# set up here -- see ROADMAP.md.
+export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
+exec "$PY" -m custodian.gui

@@ -135,10 +135,22 @@ def _print_detail(reports: list[ProjectReport]) -> None:
 
 
 def _engine_keys(args: argparse.Namespace) -> frozenset[str] | None:
-    """Opt in to the expensive engine targets."""
-    if not getattr(args, "engine_rebuildable", False):
-        return None
-    return frozenset(t.key for t in policy_mod.ENGINE_TARGETS)
+    """Opt in to the expensive engine targets.
+
+    Separate flags because the two are not the same risk: Intermediate is
+    purely a compile cache and reclaiming it never affects whether the editor
+    launches -- only whether the next engine compile is incremental. Binaries
+    IS the compiled editor; without it the editor will not launch until the
+    engine is rebuilt from source. Bundling both behind one flag would let
+    someone reach for "reclaim the compile cache" and get "brick the editor"
+    as a side effect.
+    """
+    keys = set(t.key for t in policy_mod.ENGINE_TARGETS if t.default_on)
+    if getattr(args, "engine_intermediate", False):
+        keys.add("engine_intermediate")
+    if getattr(args, "engine_binaries", False):
+        keys.add("engine_binaries")
+    return frozenset(keys)
 
 
 def _print_engines(reports: list[EngineReport]) -> None:
@@ -181,6 +193,14 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _item_name(report: ProjectReport | EngineReport) -> str:
+    return report.project.name if isinstance(report, ProjectReport) else report.engine.label
+
+
+def _item_root(report: ProjectReport | EngineReport) -> Path:
+    return report.project.root if isinstance(report, ProjectReport) else report.engine.root
+
+
 def cmd_clean(args: argparse.Namespace) -> int:
     base = policy_mod.DEFAULT_POLICY
     if args.min_age_days is not None:
@@ -189,6 +209,16 @@ def cmd_clean(args: argparse.Namespace) -> int:
         base = base.with_overrides({"min_free_gb": args.min_free_gb})
 
     reports = _scan_all(base, args.quiet, args.only)
+
+    engines = find_engine_installs()
+    engine_reports = [scan_engine(e, _engine_keys(args)) for e in engines]
+    if args.only:
+        needle = args.only.lower()
+        engine_reports = [
+            r for r in engine_reports
+            if needle in r.engine.label.lower() or needle in str(r.engine.root).lower()
+        ]
+
     free = free_bytes(Path.home())
     threshold = base.min_free_gb * GB
 
@@ -200,18 +230,23 @@ def cmd_clean(args: argparse.Namespace) -> int:
         )
         return 0
 
-    eligible = [
+    eligible_projects = [
         r
         for r in reports
         if r.policy.enabled and r.age_eligible and r.reclaimable_bytes > 0 and not r.error
     ]
+    eligible_engines = [r for r in engine_reports if r.reclaimable_bytes > 0]
+    eligible: list[ProjectReport | EngineReport] = [*eligible_projects, *eligible_engines]
     if not eligible:
-        print("\nNo project is currently eligible for cleanup.")
+        print("\nNothing is currently eligible for cleanup.")
         return 0
 
-    # Largest first: the barbell distribution of Unreal caches means a couple of
-    # projects usually account for most of the reclaimable space.
-    planned: list[ProjectReport] = []
+    # Largest first, projects and engines in one pool: the barbell distribution
+    # of Unreal caches means a couple of items usually account for most of the
+    # reclaimable space, and a source-built engine is routinely the biggest
+    # single item on the machine.
+    eligible.sort(key=lambda r: r.reclaimable_bytes, reverse=True)
+    planned: list[ProjectReport | EngineReport] = []
     projected = free
     for report in eligible:
         if threshold and projected >= threshold and not args.ignore_pressure:
@@ -223,17 +258,19 @@ def cmd_clean(args: argparse.Namespace) -> int:
     destination = (
         "PERMANENTLY (no undo)" if args.permanent else "to the Trash / Recycle Bin"
     )
-    print(f"\n{verb} {destination} from {len(planned)} project(s):\n")
+    print(f"\n{verb} {destination} from {len(planned)} item(s):\n")
 
     reclaimed = 0
     for report in planned:
-        if safedelete.editor_is_running(report.project.root):
-            print(f"  SKIP {report.project.name}: an Unreal process has this project open")
+        name = _item_name(report)
+        root = _item_root(report)
+        if safedelete.editor_is_running(root):
+            print(f"  SKIP {name}: an Unreal process has this open")
             continue
 
-        print(f"  {report.project.name}  ({human(report.reclaimable_bytes)})")
+        print(f"  {name}  ({human(report.reclaimable_bytes)})")
         for size in report.sizes:
-            rel = size.path.relative_to(report.project.root).as_posix()
+            rel = size.path.relative_to(root).as_posix()
             print(f"      {human(size.bytes):>9}  {rel}")
             try:
                 safedelete.reclaim(
@@ -265,15 +302,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-q", "--quiet", action="store_true", help="suppress progress output")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    def add_engine_flags(sub: argparse.ArgumentParser) -> None:
+        # Two flags, not one: Intermediate is a compile cache and never
+        # affects whether the editor launches. Binaries IS the compiled
+        # editor -- without it, the editor will not launch until the engine
+        # is rebuilt. Bundling them would let "reclaim the cache" silently
+        # also mean "brick the editor".
+        sub.add_argument(
+            "--engine-intermediate",
+            action="store_true",
+            help="also reclaim Engine/Intermediate on source-built engines (tens of GB; "
+                 "editor still opens -- only the next engine compile becomes a full rebuild)",
+        )
+        sub.add_argument(
+            "--engine-binaries",
+            action="store_true",
+            help="also reclaim Engine/Binaries on source-built engines "
+                 "(EDITOR WILL NOT LAUNCH until the engine is rebuilt, hours)",
+        )
+
     report = sub.add_parser("report", help="inventory projects and reclaimable space")
     report.add_argument("--detail", action="store_true", help="break down by directory")
     report.add_argument("--only", help="limit to projects matching this name or path")
-    report.add_argument(
-        "--engine-rebuildable",
-        action="store_true",
-        help="also count engine Intermediate/Binaries (source-built engines only; "
-             "reclaims tens of GB but costs a full engine rebuild)",
-    )
+    add_engine_flags(report)
     report.set_defaults(func=cmd_report)
 
     clean = sub.add_parser("clean", help="reclaim space (dry run unless --apply)")
@@ -289,8 +340,9 @@ def build_parser() -> argparse.ArgumentParser:
     clean.add_argument(
         "--ignore-pressure",
         action="store_true",
-        help="clean every eligible project regardless of free space",
+        help="clean every eligible project or engine regardless of free space",
     )
+    add_engine_flags(clean)
     clean.set_defaults(func=cmd_clean)
     return parser
 

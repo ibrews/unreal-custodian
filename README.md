@@ -76,10 +76,14 @@ One source engine was holding **146.8 GB** of rebuildable output — nearly doub
 
 `custodian` tells them apart by the marker UnrealBuildTool leaves behind — `InstalledBuild.txt` versus `SourceDistribution.txt` — and enforces the rule in code rather than trusting a flag. An engine with neither marker is treated as installed, because guessing wrong in that direction is the expensive mistake.
 
-Engine caches and logs are reclaimed by default on both kinds. The big two are opt-in even on a source build, because reclaiming tens of gigabytes costs you a multi-hour engine rebuild:
+Engine caches and logs are reclaimed by default on both kinds. `Intermediate` and `Binaries` are opt-in even on a source build, and **they are not the same risk, so they are two separate flags:**
+
+- `Engine/Intermediate` is purely the incremental-compile cache — object files, generated headers. Reclaiming it, even 90 GB of it, has **no effect on whether the editor launches**. The only cost is that your *next* engine compile has to redo everything from scratch instead of picking up where the cache left off.
+- `Engine/Binaries` **is** the compiled `UnrealEditor` executable. Reclaim it on a source build and the editor will not launch again until the engine is fully rebuilt — hours, not minutes.
 
 ```bash
-python3 -m custodian.cli report --engine-rebuildable
+python3 -m custodian.cli report --engine-intermediate   # tens of GB, editor still opens
+python3 -m custodian.cli report --engine-binaries        # editor won't launch until rebuilt
 ```
 
 ## What is never deleted
@@ -112,13 +116,17 @@ An unrecognized key in `targets` is a hard error rather than a silent no-op, so 
 python3 -m custodian.gui
 ```
 
+On macOS you can also just double-click **`packaging/macos/Unreal Custodian.app`** — it finds a Python with modern Tk automatically, so you never hit the blank-window bug below just by launching it normally.
+
 ![Unreal Custodian GUI](docs/media/gui.png)
 
-Sortable table of every project with its reclaimable size, last-touched date, engine version and eligibility; sortable table of engine installs below it with the same fields, so a source build's 60+ GB is as reachable as any project — its Intermediate/Binaries stay behind an explicit checkbox, since reclaiming them costs a full engine rebuild. The Trash/permanent choice is a checkbox, and "Never clean this" writes the `.ueclean.json` opt-out for you.
+Sortable table of every project with its reclaimable size, last-touched date, engine version and eligibility; sortable table of engine installs below it with the same fields, so a source build's 60+ GB is as reachable as any project. The divider between the two tables is a draggable sash, not a fixed split — with only a couple of engines installed the bottom table doesn't need much room, so drag it down and give the project list the space. Treeview column borders are draggable the same way Finder's and Explorer's are.
 
-The divider between the two tables is a draggable sash, not a fixed split — with only a couple of engines installed the bottom table doesn't need much room, so drag it down and give the project list the space. Treeview column borders are draggable the same way Finder's and Explorer's are.
-
-**"Clean targets (N/12)…"** picks which reclaimable folders (`Intermediate`, `Saved/Cooked`, `DerivedDataCache`, `Binaries`, `Build`, …) are in scope, for any project that doesn't have its own `.ueclean.json` — the same list documented in [Configuration](#per-project-configuration) below, as checkboxes instead of hand-edited JSON. A project's own config file still wins over this if one exists.
+- **Select All / Select None**, and **Hide fully cleaned** to drop already-clean rows out of view without losing their data — they reappear the moment you uncheck it.
+- **"Clean targets (N/12)…"** picks which reclaimable folders are in scope for any project without its own `.ueclean.json` — the same list in [Configuration](#per-project-configuration), as checkboxes instead of hand-edited JSON. A project's own config file still wins over this if one exists.
+- **Launch Engine** opens the editor with no project loaded, the same as launching Unreal itself from that install.
+- The two engine checkboxes mirror `--engine-intermediate`/`--engine-binaries` above — split for the same reason: reclaiming Intermediate doesn't stop the editor from opening, reclaiming Binaries does.
+- **"N selected to reclaim"** in the bottom-right tracks your current selection live, in either table — not the total across the whole machine — so it always matches exactly what **Clean Selected** would do if you clicked it right now.
 
 **The GUI needs a Python built with `tkinter` *and Tk 8.6 or newer*.** The CLI has no such requirement and runs on the Python that ships inside Unreal itself (`Engine/Binaries/ThirdParty/Python3/`) — that bundled interpreter has no `tkinter` at all, so it cannot run the GUI either way.
 
@@ -129,7 +137,9 @@ brew install python-tk@3.12
 /opt/homebrew/opt/python@3.12/bin/python3.12 -m custodian.gui
 ```
 
-That installs Tk 9 alongside Python 3.12, and the blank-window bug does not reproduce on it.
+That installs Tk 9 alongside Python 3.12, and the blank-window bug does not reproduce on it. The `.app` above does this search for you automatically.
+
+**Honest limitation:** double-clicking the `.app` still shows "Python" in the Dock, not "Unreal Custodian" — the window's own title bar is correct, only the Dock badge is affected. Framework Python ships its own tiny bundle (`Python.app`) so Tk can register with the window server, and that bundle re-asserts its own identity to macOS regardless of what launched it or where its binary is copied to; a shell-script wrapper can't override that. The real fix is packaging with `py2app`, which is a separate build step not set up here yet — see `ROADMAP.md`.
 
 ## Automating it
 

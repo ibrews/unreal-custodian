@@ -1,0 +1,73 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  html,body{margin:0;padding:0;background:transparent}
+</style>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1c2129"/>
+      <stop offset="100%" stop-color="#0d1117"/>
+    </linearGradient>
+    <linearGradient id="broomHandle" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#c9915a"/>
+      <stop offset="100%" stop-color="#9c6a3a"/>
+    </linearGradient>
+    <linearGradient id="bristle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0b84e"/>
+      <stop offset="100%" stop-color="#d9932a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- macOS squircle background -->
+  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
+
+  <!-- swept cubes, tumbling away to the upper right, largest (closest to broom) to smallest.
+       Deliberately generic cubes, not Epic's Unreal "U" mark -- this is a third-party tool
+       and reproducing that trademark on its icon would not be appropriate. -->
+  <g stroke="#3fb95099" stroke-width="14" fill="#3fb95022">
+    <rect x="700" y="330" width="86" height="86" rx="12" transform="rotate(18 743 373)"/>
+  </g>
+  <g stroke="#58a6ff99" stroke-width="13" fill="#58a6ff22">
+    <rect x="800" y="230" width="66" height="66" rx="10" transform="rotate(-14 833 263)"/>
+  </g>
+  <g stroke="#f8514999" stroke-width="11" fill="#f8514922">
+    <rect x="880" y="160" width="46" height="46" rx="8" transform="rotate(24 903 183)"/>
+  </g>
+
+  <!-- motion trail -->
+  <g stroke="#8b949e55" stroke-width="10" stroke-linecap="round" fill="none">
+    <path d="M 560 560 Q 660 480 760 400"/>
+    <path d="M 590 610 Q 700 520 810 440"/>
+  </g>
+
+  <!-- broom -->
+  <g>
+    <!-- handle -->
+    <rect x="470" y="150" width="46" height="480" rx="23" fill="url(#broomHandle)" transform="rotate(34 493 390)"/>
+    <!-- bristle fan -->
+    <path d="M 300 830
+             C 300 760 340 700 400 680
+             L 660 590
+             C 700 660 690 730 640 770
+             L 380 870
+             C 340 880 300 870 300 830 Z"
+          fill="url(#bristle)"/>
+    <!-- bristle strokes -->
+    <g stroke="#b8721f" stroke-width="7" stroke-linecap="round" opacity="0.55">
+      <line x1="350" y1="820" x2="380" y2="700"/>
+      <line x1="410" y1="810" x2="450" y2="675"/>
+      <line x1="470" y1="795" x2="515" y2="655"/>
+      <line x1="530" y1="775" x2="580" y2="635"/>
+      <line x1="590" y1="750" x2="640" y2="615"/>
+    </g>
+    <!-- binding band -->
+    <rect x="600" y="560" width="70" height="46" rx="10" fill="#5b3a1e" transform="rotate(34 635 583)"/>
+  </g>
+
+  <!-- small sparkle accents -->
+  <g fill="#e6edf3" opacity="0.85">
+    <circle cx="770" cy="330" r="6"/>
+    <circle cx="840" cy="410" r="4"/>
+  </g>
+</svg>

@@ -166,18 +166,25 @@ ENGINE_TARGETS: tuple[EngineTarget, ...] = (
         relpath="Engine/Intermediate",
         description="Engine build intermediates",
         # Off by default even on source builds: reclaiming it is measured in
-        # tens of gigabytes, but the rebuild is measured in hours.
+        # tens of gigabytes. But it is NOT the same risk as engine_binaries --
+        # Intermediate is purely the incremental-compile cache (object files,
+        # generated headers). The editor launches exactly as before with it
+        # gone; the only cost is that the NEXT engine compile has to redo
+        # everything from scratch instead of incrementally.
         default_on=False,
         source_builds_only=True,
-        rebuild_cost="FULL ENGINE REBUILD (hours)",
+        rebuild_cost="editor still opens -- only the next engine compile becomes a full rebuild",
     ),
     EngineTarget(
         key="engine_binaries",
         relpath="Engine/Binaries",
         description="Compiled engine binaries",
+        # This one really does block you: Binaries IS the compiled
+        # UnrealEditor executable. Without it the editor will not launch at
+        # all until the engine is rebuilt from source.
         default_on=False,
         source_builds_only=True,
-        rebuild_cost="FULL ENGINE REBUILD (hours)",
+        rebuild_cost="EDITOR WILL NOT LAUNCH until the engine is fully rebuilt (hours)",
     ),
 )
 

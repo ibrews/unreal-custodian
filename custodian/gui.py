@@ -49,7 +49,14 @@ class CustodianApp:
         self.scanning = False
 
         self.permanent = tk.BooleanVar(value=False)
-        self.engine_rebuildable = tk.BooleanVar(value=False)
+        # Two independent checkboxes, not one: reclaiming Engine/Intermediate
+        # never affects whether the editor launches (it's a compile cache).
+        # Reclaiming Engine/Binaries does -- the editor will not start again
+        # until the engine is rebuilt. Bundling them under one control would
+        # let someone reach for the safe half and get the destructive half.
+        self.engine_intermediate = tk.BooleanVar(value=False)
+        self.engine_binaries = tk.BooleanVar(value=False)
+        self.hide_clean = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="Ready.")
         self.summary = tk.StringVar(value="")
 
@@ -98,12 +105,37 @@ class CustodianApp:
         )
         self._build_engines(bottom)
 
+        # Clean Selected lives here, not inside either table's own button row:
+        # it acts on whichever table has a selection, project or engine, so it
+        # belongs to the panel as a whole rather than looking owned by one
+        # side. Made deliberately larger/bolder -- it's the one button whose
+        # consequence is irreversible-by-default-feeling even though it isn't.
+        style = ttk.Style()
+        style.configure("Clean.TButton", font=("", 12, "bold"), padding=(18, 10))
+
         bar = ttk.Frame(outer)
-        bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(8, 0))
-        ttk.Label(bar, textvariable=self.status).pack(side=tk.LEFT)
-        ttk.Label(bar, textvariable=self.summary, font=("", 11, "bold")).pack(
+        bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+
+        status_row = ttk.Frame(bar)
+        status_row.pack(side=tk.TOP, fill=tk.X)
+        ttk.Label(status_row, textvariable=self.status).pack(side=tk.LEFT)
+        ttk.Label(status_row, textvariable=self.summary, font=("", 11, "bold")).pack(
             side=tk.RIGHT
         )
+
+        action_row = ttk.Frame(bar)
+        action_row.pack(side=tk.TOP, fill=tk.X, pady=(8, 0))
+        ttk.Checkbutton(
+            action_row,
+            text="Delete permanently instead of to Trash",
+            variable=self.permanent,
+            command=self._warn_permanent,
+        ).pack(side=tk.LEFT)
+        self.clean_button = ttk.Button(
+            action_row, text="Clean Selected", style="Clean.TButton",
+            command=self.clean_selected,
+        )
+        self.clean_button.pack(side=tk.RIGHT)
 
     def _set_initial_sash(self, paned: ttk.PanedWindow) -> None:
         total = paned.winfo_height()
@@ -143,11 +175,22 @@ class CustodianApp:
         self.tree.bind("<Double-1>", lambda _e: self.launch_project())
         # Selecting in one tree clears the other -- "Clean Selected" always
         # acts on an unambiguous set rather than silently unioning both.
-        self.tree.bind("<<TreeviewSelect>>", lambda _e: self._clear_selection(self.engines))
+        # Also refreshes the summary line so "ready to reclaim" tracks the
+        # live selection instead of every eligible row on the machine.
+        self.tree.bind(
+            "<<TreeviewSelect>>",
+            lambda _e: (self._clear_selection(self.engines), self._refresh_summary()),
+        )
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
         ttk.Button(buttons, text="Rescan", command=self.rescan).pack(side=tk.LEFT)
+        ttk.Button(buttons, text="Select All", command=self.select_all_projects).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
+        ttk.Button(buttons, text="Select None", command=self.select_no_projects).pack(
+            side=tk.LEFT, padx=(4, 0)
+        )
         ttk.Button(buttons, text="Launch Project", command=self.launch_project).pack(
             side=tk.LEFT, padx=(8, 0)
         )
@@ -164,14 +207,10 @@ class CustodianApp:
 
         ttk.Checkbutton(
             buttons,
-            text="Delete permanently instead of to Trash",
-            variable=self.permanent,
-            command=self._warn_permanent,
+            text="Hide fully cleaned",
+            variable=self.hide_clean,
+            command=self._apply_project_filter,
         ).pack(side=tk.RIGHT)
-        self.clean_button = ttk.Button(
-            buttons, text="Clean Selected", command=self.clean_selected
-        )
-        self.clean_button.pack(side=tk.RIGHT, padx=(0, 10))
 
     def _build_engines(self, parent: ttk.Frame) -> None:
         frame = ttk.Frame(parent)
@@ -200,8 +239,10 @@ class CustodianApp:
 
         self.engines.tag_configure("eligible", foreground="#b3261e")
         self.engines.tag_configure("blocked", foreground="#8a8a8a")
+        self.engines.bind("<Double-1>", lambda _e: self.launch_engine())
         self.engines.bind(
-            "<<TreeviewSelect>>", lambda _e: self._clear_selection(self.tree)
+            "<<TreeviewSelect>>",
+            lambda _e: (self._clear_selection(self.tree), self._refresh_summary()),
         )
 
         vsb = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.engines.yview)
@@ -209,14 +250,32 @@ class CustodianApp:
         self.engines.grid(row=0, column=0, sticky=tk.NSEW)
         vsb.grid(row=0, column=1, sticky=tk.NS)
 
-        note = ttk.Checkbutton(
-            frame,
-            text="Include Intermediate/Binaries on source-built engines "
-                 "(reclaims tens of GB, but costs a full engine rebuild)",
-            variable=self.engine_rebuildable,
-            command=self.rescan,
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
+        ttk.Button(buttons, text="Launch Engine", command=self.launch_engine).pack(
+            side=tk.LEFT
         )
-        note.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+
+        # Split in two: reclaiming Intermediate never affects whether the
+        # editor launches (it's the compile cache). Reclaiming Binaries does
+        # -- the editor will not start until the engine is rebuilt. See the
+        # class docstring / policy.ENGINE_TARGETS for the full reasoning.
+        checks = ttk.Frame(frame)
+        checks.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
+        ttk.Checkbutton(
+            checks,
+            text="Include Intermediate on source-built engines "
+                 "(tens of GB; editor still opens)",
+            variable=self.engine_intermediate,
+            command=self.rescan,
+        ).pack(side=tk.TOP, anchor=tk.W)
+        ttk.Checkbutton(
+            checks,
+            text="Include Binaries on source-built engines "
+                 "(editor will NOT launch until the engine is rebuilt)",
+            variable=self.engine_binaries,
+            command=self.rescan,
+        ).pack(side=tk.TOP, anchor=tk.W)
 
     # ---------------------------------------------------------------- scanning
 
@@ -228,31 +287,40 @@ class CustodianApp:
         if self.scanning:
             return
         self.scanning = True
+        # Delete by tracked key, not tree.get_children() -- "Hide fully
+        # cleaned" detaches rows rather than removing them, and get_children()
+        # only returns attached (visible) items. Deleting only those would
+        # leave detached rows behind with their old iids, which then collide
+        # with the next scan's insert() for the same project.
+        for key in list(self.reports):
+            if self.tree.exists(key):
+                self.tree.delete(key)
+        for key in list(self.engine_reports):
+            if self.engines.exists(key):
+                self.engines.delete(key)
         self.reports.clear()
         self.engine_reports.clear()
-        self.tree.delete(*self.tree.get_children())
-        self.engines.delete(*self.engines.get_children())
         self.status.set("Searching...")
         self.summary.set("")
-        include_rebuildable = self.engine_rebuildable.get()
+        engine_keys = frozenset(
+            t.key for t in policy_mod.ENGINE_TARGETS if t.default_on
+        ) | ({"engine_intermediate"} if self.engine_intermediate.get() else set()) \
+          | ({"engine_binaries"} if self.engine_binaries.get() else set())
         base_policy = policy_mod.DEFAULT_POLICY.with_overrides(
             {"targets": [key for key, var in self.target_vars.items() if var.get()]}
         )
         threading.Thread(
-            target=self._scan_worker, args=(include_rebuildable, base_policy), daemon=True
+            target=self._scan_worker, args=(engine_keys, base_policy), daemon=True
         ).start()
 
-    def _scan_worker(self, include_rebuildable: bool, base_policy: policy_mod.Policy) -> None:
+    def _scan_worker(
+        self, engine_keys: frozenset[str], base_policy: policy_mod.Policy
+    ) -> None:
         """Runs off the main thread; every result goes back through the queue."""
         try:
             engines = find_engine_installs()
-            keys = (
-                frozenset(t.key for t in policy_mod.ENGINE_TARGETS)
-                if include_rebuildable
-                else None
-            )
             for engine in engines:
-                self.results.put(("engine", scan_engine(engine, keys)))
+                self.results.put(("engine", scan_engine(engine, engine_keys)))
             projects = find_projects(engine_installs=engines)
             self.results.put(("count", len(projects)))
             for project in projects:
@@ -320,7 +388,21 @@ class CustodianApp:
             "", tk.END, iid=key, text=report.project.name,
             values=self._row(report), tags=(self._tag(report),),
         )
+        if self.hide_clean.get() and report.reclaimable_bytes == 0:
+            self.tree.detach(key)
         self._refresh_summary()
+
+    def _apply_project_filter(self) -> None:
+        """Detach (not delete) fully-cleaned rows so their data survives the toggle."""
+        hide = self.hide_clean.get()
+        visible = set(self.tree.get_children())
+        for key, report in self.reports.items():
+            is_clean = report.reclaimable_bytes == 0
+            if hide and is_clean and key in visible:
+                self.tree.detach(key)
+            elif not (hide and is_clean) and key not in visible:
+                # Reattach at the end; a header click re-sorts immediately after.
+                self.tree.move(key, "", "end")
 
     def _row(self, report: ProjectReport) -> tuple:
         age = report.age_days
@@ -357,18 +439,12 @@ class CustodianApp:
 
     def _refresh_summary(self) -> None:
         proj_total = sum(r.reclaimable_bytes for r in self.reports.values())
-        proj_ready = sum(
-            r.reclaimable_bytes for r in self.reports.values() if self._tag(r) == "eligible"
-        )
         eng_total = sum(r.reclaimable_bytes for r in self.engine_reports.values())
-        eng_ready = sum(
-            r.reclaimable_bytes
-            for r in self.engine_reports.values()
-            if self._engine_tag(r) == "eligible"
-        )
+        selected_bytes = sum(r.reclaimable_bytes for r in self._eligible_selection())
+
         self.summary.set(
-            f"{human(proj_ready + eng_ready)} ready to reclaim  ·  "
-            f"{human(proj_total + eng_total)} found  ·  "
+            f"{human(selected_bytes)} selected to reclaim  ·  "
+            f"{human(proj_total + eng_total)} reclaimable found  ·  "
             f"{human(free_bytes(Path.home()))} free"
         )
         if not self.scanning:
@@ -403,6 +479,23 @@ class CustodianApp:
             if iid in self.engine_reports
         ]
 
+    def _eligible_selection(self) -> list[ProjectReport | EngineReport]:
+        """Exactly what 'Clean Selected' would act on right now.
+
+        Single source of truth for both the live summary figure and the
+        actual clean action, so the number on screen can never drift from
+        what clicking the button actually reclaims.
+        """
+        projects = [r for r in self._selected_projects() if self._tag(r) == "eligible"]
+        engines = [r for r in self._selected_engines() if self._engine_tag(r) == "eligible"]
+        return [*projects, *engines]
+
+    def select_all_projects(self) -> None:
+        self.tree.selection_set(self.tree.get_children())
+
+    def select_no_projects(self) -> None:
+        self.tree.selection_remove(*self.tree.selection())
+
     def launch_project(self) -> None:
         for report in self._selected_projects()[:1]:
             path = report.project.uproject
@@ -425,6 +518,36 @@ class CustodianApp:
                 subprocess.Popen(["explorer", "/select,", str(path)])
             else:
                 subprocess.Popen(["xdg-open", str(path.parent)])
+
+    def _engine_editor_executable(self, engine_root: Path) -> Path | None:
+        """The editor binary this engine install would launch, if it has one."""
+        if sys.platform == "darwin":
+            candidate = engine_root / "Engine/Binaries/Mac/UnrealEditor.app"
+        elif sys.platform.startswith("win"):
+            candidate = engine_root / "Engine/Binaries/Win64/UnrealEditor.exe"
+        else:
+            candidate = engine_root / "Engine/Binaries/Linux/UnrealEditor"
+        return candidate if candidate.exists() else None
+
+    def launch_engine(self) -> None:
+        """Launch the editor with no project -- the engine's own project browser."""
+        for report in self._selected_engines()[:1]:
+            executable = self._engine_editor_executable(report.engine.root)
+            if executable is None:
+                messagebox.showerror(
+                    "Can't launch",
+                    f"No editor executable found under {report.engine.root}.\n\n"
+                    "If this engine's Binaries were reclaimed, it needs a rebuild "
+                    "before it can launch.",
+                )
+                return
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", str(executable)])
+            elif sys.platform.startswith("win"):
+                os.startfile(str(executable))  # noqa: S606
+            else:
+                subprocess.Popen([str(executable)])
+            self.status.set(f"Launched {report.engine.label}")
 
     def toggle_opt_out(self) -> None:
         """Write (or clear) `enabled: false` in the project's .ueclean.json.
@@ -522,9 +645,7 @@ class CustodianApp:
             self.permanent.set(False)
 
     def clean_selected(self) -> None:
-        chosen_projects = [r for r in self._selected_projects() if self._tag(r) == "eligible"]
-        chosen_engines = [r for r in self._selected_engines() if self._engine_tag(r) == "eligible"]
-        chosen = chosen_projects + chosen_engines
+        chosen = self._eligible_selection()
         if not chosen:
             messagebox.showinfo(
                 "Nothing to clean",
