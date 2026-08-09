@@ -228,3 +228,68 @@ def test_scan_root_filters_an_unscoped_index_result_too(tmp_path: Path, monkeypa
 
     projects = discovery.find_projects(roots=[], engine_installs=[])
     assert [p.name for p in projects] == ["DemoProject"]
+
+
+def test_engine_scan_root_is_independent_of_the_project_scan_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Setting CUSTODIAN_PROJECT_SCAN_ROOT alone must not scope engines --
+    that's test_engine_discovery_is_never_scoped_by_the_project_scan_root
+    above. This is the other direction: CUSTODIAN_ENGINE_SCAN_ROOT must not
+    require CUSTODIAN_PROJECT_SCAN_ROOT to also be set."""
+    monkeypatch.setenv("CUSTODIAN_ENGINE_SCAN_ROOT", "/some/demo/folder")
+    monkeypatch.delenv("CUSTODIAN_PROJECT_SCAN_ROOT", raising=False)
+    seen = {}
+
+    def fake_index_search(pattern, **kwargs):
+        seen[pattern] = kwargs.get("scan_root")
+        return None
+
+    monkeypatch.setattr(discovery, "_index_search", fake_index_search)
+    monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [])
+    monkeypatch.setattr(discovery, "_walk_search", lambda roots, suffix: [])
+
+    discovery.find_engine_installs(roots=[])
+    assert seen["Build.version"] == "/some/demo/folder"
+
+
+def test_engine_scan_root_skips_the_launcher_manifest(tmp_path: Path, monkeypatch) -> None:
+    """The launcher manifest only ever lists real, launcher-installed
+    engines -- there's no synthetic entry it could return, so a scoped scan
+    has to skip it outright rather than trust it's somehow already scoped.
+    Real case this guards against: a launcher-installed engine whose path
+    embeds a client/partner name, same class of leak as the search paths."""
+    real_engine = make_engine(tmp_path / "real" / "ClientName_UE58", 5, 8)
+    monkeypatch.setenv("CUSTODIAN_ENGINE_SCAN_ROOT", str(tmp_path / "demo"))
+    monkeypatch.setattr(discovery, "_launcher_engine_roots", lambda: [real_engine])
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: None)
+    monkeypatch.setattr(discovery, "_walk_search", lambda roots, suffix: [])
+
+    installs = discovery.find_engine_installs(roots=[])
+    assert installs == []
+
+
+def test_engine_scan_root_scopes_the_walk_fallback_and_filters_the_index(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Same defense-in-depth as the project-side test: CUSTODIAN_ENGINE_SCAN_ROOT
+    has to survive both the no-index walk fallback AND an index result that
+    (like real es.exe today) ignores the requested scope."""
+    demo = tmp_path / "demo"
+    demo.mkdir()
+    safe = make_engine(demo / "UE_5.8", 5, 8)
+    sensitive = make_engine(tmp_path / "real" / "InnerspaceClient_UE52", 5, 2)
+
+    monkeypatch.setenv("CUSTODIAN_ENGINE_SCAN_ROOT", str(demo))
+    monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [])
+    monkeypatch.setattr(
+        discovery,
+        "_index_search",
+        lambda pattern, **kwargs: [
+            safe / "Engine" / "Build" / "Build.version",
+            sensitive / "Engine" / "Build" / "Build.version",
+        ],
+    )
+
+    installs = discovery.find_engine_installs(roots=[])
+    assert [e.root for e in installs] == [safe]

@@ -1,25 +1,28 @@
-"""Build a synthetic project tree for capturing README/social screenshots,
-so screenshots never expose real project names, plugin names, or client
-names.
+"""Build a synthetic project *and engine* tree for capturing README/social
+screenshots, so screenshots never expose real project names, plugin names,
+client names, or partner names.
 
 Usage:
     python3 docs/media/build_demo_data.py [target-dir]
 
-Pair with CUSTODIAN_PROJECT_SCAN_ROOT (see custodian/discovery.py) on macOS
-to scope project discovery to just this synthetic tree -- engine discovery
-is deliberately left unscoped so real, installed engines still show up. On
-Windows, es.exe indexing isn't scan-root-scoped yet -- point the GUI/CLI's
-project roots at this folder directly, or run against a box with no real
-projects on the search path.
+Set BOTH CUSTODIAN_PROJECT_SCAN_ROOT and CUSTODIAN_ENGINE_SCAN_ROOT (see
+custodian/discovery.py) to this same target-dir before scanning -- that
+scopes projects AND engines to purely synthetic data, so a screenshot never
+has to trust that a machine's real engine paths happen to be safe to show.
+That trust turned out to be misplaced in practice: a real source-build
+engine path on one test machine was itself named after the client it was
+built for (a launcher-installed one on the same machine named the partner
+too), which is exactly the class of leak CUSTODIAN_PROJECT_SCAN_ROOT alone
+does not cover -- it only scopes project discovery, by design, because most
+users still want their real engines visible for real cleanup runs.
 
 Pure stdlib, cross-platform by design: the original bash version couldn't
-run on Windows, and a Windows box is exactly where this is needed most --
-client project names (a partner's product name, an internal codename) are
-just as sensitive as the plugin name this was first built to hide.
+run on Windows, and a Windows box is exactly where this is needed most.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import time
@@ -39,6 +42,12 @@ PROJECTS = [
     ("PlatformerPrototype", False, 95, 30, 0, 19, False),
     ("CityBuilderTest", True, 780, 310, 210, 41, False),
     ("FlightSimShowcase", False, 1600, 500, 0, 3, False),
+]
+
+# name, major, minor, patch, installed_build, ddc_mb, crashes_mb
+ENGINES = [
+    ("UE_5.8", 5, 8, 1, True, 2900, 8),
+    ("UE_5.6_source", 5, 6, 1, False, 300, 4),
 ]
 
 CHUNK = 1024 * 1024
@@ -98,6 +107,29 @@ def build_project(demo: Path, name: str, cpp: bool, inter_mb: int, ddc_mb: int,
     backdate(root, age_days)
 
 
+def build_engine(demo: Path, name: str, major: int, minor: int, patch: int,
+                  installed_build: bool, ddc_mb: int, crashes_mb: int) -> None:
+    # Layout has to match discovery.py's own expectations exactly:
+    # Engine/Build/Build.version, Engine/Source or Engine/Build/BatchFiles
+    # to read as an engine at all (not a packaged game), and
+    # InstalledBuild.txt / SourceDistribution.txt to pick the right kind.
+    root = demo / "_engines" / name
+    build_dir = root / "Engine" / "Build"
+    (build_dir / "BatchFiles").mkdir(parents=True, exist_ok=True)
+    (root / "Engine" / "Source").mkdir(parents=True, exist_ok=True)
+    (build_dir / "Build.version").write_text(
+        json.dumps({"MajorVersion": major, "MinorVersion": minor, "PatchVersion": patch}),
+        encoding="utf-8",
+    )
+    marker = "InstalledBuild.txt" if installed_build else "SourceDistribution.txt"
+    (build_dir / marker).write_text("", encoding="utf-8")
+
+    mk_file(root / "Engine" / "DerivedDataCache" / "placeholder.ddc", ddc_mb)
+    mk_file(root / "Engine" / "Saved" / "Crashes" / "placeholder.dmp", crashes_mb)
+
+    backdate(root, age_days=30)
+
+
 def main() -> None:
     demo = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.home() / "CustodianDemo"
     if demo.exists():
@@ -108,8 +140,10 @@ def main() -> None:
 
     for row in PROJECTS:
         build_project(demo, *row)
+    for row in ENGINES:
+        build_engine(demo, *row)
 
-    print(f"Built {len(PROJECTS)} demo projects under {demo}")
+    print(f"Built {len(PROJECTS)} demo projects and {len(ENGINES)} demo engines under {demo}")
 
 
 if __name__ == "__main__":

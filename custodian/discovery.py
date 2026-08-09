@@ -113,10 +113,13 @@ def _scan_root_override() -> str | None:
     (a demo/screenshot directory, a single project tree you want isolated
     from everything else the index would otherwise return) without touching
     anything else on the machine. Deliberately scoped to the *.uproject
-    search only, not engine discovery (Build.version) -- engine installs
-    carry no project-specific information worth isolating, and someone using
-    this to demo/screenshot one project tree still wants their real engines
-    to show.
+    search only, not engine discovery (Build.version): a project's own path
+    is what this exists to hide, and someone demoing one project tree
+    usually still wants their real engines to show. That does NOT mean
+    engine paths are always safe to leave unscoped, though -- an engine
+    root's own path can carry the same kind of sensitive naming a project's
+    can (a source build folder named after the client it was built for). Use
+    CUSTODIAN_ENGINE_SCAN_ROOT for that case; the two are independent.
     """
     return os.environ.get("CUSTODIAN_PROJECT_SCAN_ROOT") or None
 
@@ -295,18 +298,49 @@ def _is_installed_build(engine_root: Path) -> bool:
     return True
 
 
+def _engine_scan_root_override() -> str | None:
+    """Restrict *engine* discovery to one directory tree, if
+    CUSTODIAN_ENGINE_SCAN_ROOT is set.
+
+    Deliberately separate from CUSTODIAN_PROJECT_SCAN_ROOT, and never implied
+    by it: a real user wants engine installs shown unscoped -- that IS the
+    tool's value on the engine side. This only matters for a demo/screenshot
+    on a machine whose own engine *paths* carry sensitive information -- a
+    source build folder named after the client it was built for, a partner
+    name baked into a checkout path (both real cases, not hypothetical: see
+    intelligence/decisions in this repo's history). CUSTODIAN_PROJECT_SCAN_ROOT
+    scoping projects does not make engine paths safe, because an engine root
+    carries no relationship to any project root at all.
+    """
+    return os.environ.get("CUSTODIAN_ENGINE_SCAN_ROOT") or None
+
+
 def find_engine_installs(roots: list[Path] | None = None) -> list[EngineInstall]:
     """Locate engine installs, launcher manifest first, then by searching."""
+    engine_scan_root = _engine_scan_root_override()
     installs: dict[Path, EngineInstall] = {}
-    for engine_root in _launcher_engine_roots():
-        engine = _engine_from_root(engine_root)
-        if engine:
-            installs[engine.root] = engine
+    if engine_scan_root is None:
+        # The launcher manifest lists only real, launcher-installed engines --
+        # there's no synthetic entry it could ever return, so scoping it can
+        # only mean skipping it outright.
+        for engine_root in _launcher_engine_roots():
+            engine = _engine_from_root(engine_root)
+            if engine:
+                installs[engine.root] = engine
 
     # Source builds and manually-installed engines are not in the manifest.
-    found = _index_search("Build.version")
+    found = _index_search("Build.version", scan_root=engine_scan_root)
     if found is None:
-        found = _walk_search(roots or default_roots(), "Build.version")
+        walk_roots = (
+            [Path(engine_scan_root)] if engine_scan_root else (roots or default_roots())
+        )
+        found = _walk_search(walk_roots, "Build.version")
+
+    if engine_scan_root is not None:
+        # Same defense in depth as find_projects(): don't trust that the
+        # index actually honored the scope (es.exe's support is unverified).
+        base = Path(engine_scan_root).resolve()
+        found = [p for p in found if _is_within(p, base)]
 
     for manifest in found:
         # .../<EngineRoot>/Engine/Build/Build.version
