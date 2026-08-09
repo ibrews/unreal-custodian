@@ -160,3 +160,7 @@ Built by [@ibrews](https://github.com/ibrews) and [@nocxr](https://github.com/no
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Support
+
+If you like seeing this kind of thing get built and shared, [donations are always welcome](https://www.alexcoulombepresents.com/support) — they buy hardware, render time, and the freedom to keep giving most of this away.
