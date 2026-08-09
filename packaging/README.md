@@ -17,17 +17,23 @@ python3 -m venv .build-venv && .build-venv/bin/pip install py2app
 
 Produces `packaging/macos/dist/Unreal Custodian.app`. Must run on macOS.
 
-To sign (Developer ID Application cert required — see README's "Support" /
-project docs for which team):
+To sign, notarize, and staple in one step (Developer ID Application cert and
+an App Store Connect API key with at least the Developer role required):
 
 ```bash
-codesign --deep --force --timestamp --options runtime \
-  --sign "<certificate SHA-1 or exact name>" "dist/Unreal Custodian.app"
+./sign_and_notarize.sh "<codesign identity>" "<ASC key ID>" "<ASC issuer ID>" "<path to .p8>"
 ```
 
-Then notarize (`xcrun notarytool submit ... --wait` on a zipped copy) and
-staple (`xcrun stapler staple`) before distributing, or Gatekeeper still
-rejects it on a fresh machine even though it's correctly signed.
+**Do not just run `codesign --deep` on the outer bundle and call it done.**
+Confirmed the hard way: Apple's own docs describe `--deep`'s traversal as
+unreliable for complex bundles, and on a py2app build it misses the Python
+stdlib's C extensions (`Contents/Resources/lib/python3.12/lib-dynload/*.so`)
+because they live outside `Contents/Frameworks/`. The first notarization
+submission with `--deep` alone came back `Invalid` with 52 unsigned files.
+`sign_and_notarize.sh` finds every actual Mach-O binary in the bundle (via
+`file`, not extension matching) and signs each one explicitly before
+resealing the outer `.app` — that's the only reliable way for this kind of
+bundle. It also submits, waits, staples, and re-zips for you.
 
 Regenerate the icon with `./build_icon.sh` after editing `icon_source.html` —
 it writes `icon.icns` here, which both this build and the thin wrapper .app

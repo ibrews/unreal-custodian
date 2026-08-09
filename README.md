@@ -31,7 +31,7 @@ A second project, `ThirdPersonClass`, where the caches dominated — 8.7 GB down
 
 **Just want the app? Grab a standalone build from the [latest release](https://github.com/ibrews/unreal-custodian/releases/latest)** — `Unreal.Custodian.macOS.zip` or `UnrealCustodian.exe`. No Python required either way.
 
-- macOS: unzip, right-click → Open the first time (signed, not yet notarized — Gatekeeper asks once)
+- macOS: unzip and open — signed and notarized, no Gatekeeper warning
 - Windows: unsigned — SmartScreen shows an "unknown publisher" click-through on first run
 
 Or run from source — no install needed for the CLI, and this is the only option if you want the latest unreleased fixes:
