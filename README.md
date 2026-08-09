@@ -13,7 +13,8 @@ The Windows box had six source-built engines holding 60–75 GB each, and 17 GB 
 
 Epic themselves agree these folders are junk: Fab's 15 GB submission limit is specified *excluding* `Saved` and `Intermediate`.
 
-![Unreal Custodian GUI](docs/media/gui.png)
+![Unreal Custodian GUI on macOS](docs/media/gui.png)
+![Unreal Custodian GUI on Windows](docs/media/gui-windows.png)
 
 A real Finder/Explorer-style app — [standalone download](https://github.com/ibrews/unreal-custodian/releases/latest) for Mac and Windows, no Python required — or the same thing from the terminal:
 
