@@ -14,33 +14,35 @@ pre{margin:0;padding:15px 18px;color:#c9d1d9;font-family:'SF Mono',Menlo,Consola
 h3{color:#e6edf3;font-size:13px;margin:0 0 8px 2px;letter-spacing:.4px;text-transform:uppercase}
 h3 .tag{font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px;text-transform:none;letter-spacing:0}
 .tb{background:#3d1d1d;color:#f85149}.ta{background:#12301c;color:#3fb950}
-</style><div style='width:1180px'><div class="win"><div class="bar"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="t">upj report</span></div><pre><span class="b">Found 2 engine install(s), 96 project(s).</span>
+</style><div style='width:1180px'><div class="win"><div class="bar"><span class="dot" style="background:#ff5f56"></span><span class="dot" style="background:#ffbd2e"></span><span class="dot" style="background:#27c93f"></span><span class="t">custodian report</span></div><pre><span class="b">Found 2 engine install(s), 12 project(s).</span>
 <span class="b">  UE 5.8.1     /Users/Shared/Epic Games/UE_5.8</span>
 <span class="b">  UE 5.6.1     /Users/Shared/GH/UnrealEngineVisionOS</span>
 <span class="b">Measuring... (directory sizing is the slow part)</span>
 
 <span class="d">PROJECT                                  RECLAIM      AGE  KIND  NOTES</span>
 <span class="d">----------------------------------------------------------------------</span>
-FSLA_SPH_56                                31.7G       3d  <span class='w'>BP  </span><span class='d'>  too recent (&lt;14d)</span>
-GH/My_Project                              17.1G       6d  <span class='w'>C++  </span><span class='d'> too recent (&lt;14d); Binaries kept (C++ rebuild cost); skipped Intermediate (symlink resolves outside the project)</span>
-ACCVR24                                     6.2G      41d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
-GH/URKLiveLinkDemo                          3.7G       0d  <span class='w'>BP  </span><span class='d'>  too recent (&lt;14d)</span>
-ecab57                                      3.6G      39d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
-MindTheGap_56                               2.8G     365d  BP    
-GASP57                                      2.2G     111d  BP    
-GameAnimationSample_5.7/GameAnimationS      1.4G     148d  BP    
-GH/VisionProTemplate                        1.3G      57d  BP    
-GH/VisionProTemplate                      952.2M      52d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
-ue/vr57                                   792.2M      29d  BP    
-ECABridge-Build-5.7-skeletal/HostProje    708.7M        -  <span class='w'>BP  </span><span class='d'>  too recent (&lt;14d)</span>
-fp57                                      640.0M     317d  BP    
-MCP58_test1                               594.2M      38d  BP    
-ue/VisionProTemplate                      478.9M      60d  BP    
-GH/URKLiveLinkDemo                        393.5M       9d  <span class='w'>BP  </span><span class='d'>  too recent (&lt;14d)</span>
-VisionHack_55                             348.6M     170d  BP    
-ue/HalcyonVR                              326.4M     423d  BP    
-ue/VisionProTemplate                      301.7M     170d  BP    
-<span class="g">TOTAL RECLAIMABLE: 77.2G</span>
-<span class="y">FREE ON THIS VOLUME: 59.8G</span>
+OpenWorldDemo                               6.5G      85d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
+SciFiCorridor                               4.1G      62d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
+MetaHumanShowcase                           3.9G      33d  BP    
+HorrorEscapeRoom                            2.5G      54d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
+FlightSimShowcase                           2.1G       3d  <span class='w'>BP  </span><span class='d'>  too recent (&lt;14d)</span>
+RacingPrototype                             1.5G      48d  BP    
+CityBuilderTest                             1.1G      41d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
+VRTrainingSim                             830.0M      71d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
+PuzzleAdventure                           200.0M      22d  BP    
+PlatformerPrototype                       125.0M      19d  BP    
+ArchVizWalkthrough                            0B      90d  <span class='w'>C++  </span><span class='d'> Binaries kept (C++ rebuild cost)</span>
+RoboticsSimulator                             0B     120d  BP    
 
-<span class="d">Nothing was deleted. `upj clean` shows what a cleanup would remove.</span></pre></div></div>
+ENGINE INSTALLS
+<span class="d">----------------------------------------------------------------------</span>
+<span class="b">  UE 5.8.1 (installed)       2.9G reclaimable   /Users/Shared/Epic Games/UE_5.8</span>
+           2.9G  Engine/DerivedDataCache          re-derived on next editor start (slow first load)
+<span class="b">  UE 5.6.1 (source)     304.3M reclaimable   /Users/Shared/GH/UnrealEngineVisionOS</span>
+         296.1M  Engine/DerivedDataCache          re-derived on next editor start (slow first load)
+           8.2M  Engine/Saved/Crashes             none
+
+<span class="g">TOTAL RECLAIMABLE: 26.0G</span>
+<span class="y">FREE ON THIS VOLUME: 113.1G</span>
+
+<span class="d">Nothing was deleted. `custodian clean` shows what a cleanup would remove.</span></pre></div></div>

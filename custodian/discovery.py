@@ -105,12 +105,32 @@ def _everything_exe() -> str | None:
     return str(local) if local.exists() else None
 
 
-def _index_search(pattern: str) -> list[Path] | None:
+def _scan_root_override() -> str | None:
+    """Restrict *project* discovery to one directory tree, if
+    CUSTODIAN_PROJECT_SCAN_ROOT is set.
+
+    Not a normal end-user setting -- for scoping a scan to a specific folder
+    (a demo/screenshot directory, a single project tree you want isolated
+    from everything else the index would otherwise return) without touching
+    anything else on the machine. Deliberately scoped to the *.uproject
+    search only, not engine discovery (Build.version) -- engine installs
+    carry no project-specific information worth isolating, and someone using
+    this to demo/screenshot one project tree still wants their real engines
+    to show.
+    """
+    return os.environ.get("CUSTODIAN_PROJECT_SCAN_ROOT") or None
+
+
+def _index_search(pattern: str, *, scan_root: str | None = None) -> list[Path] | None:
     """Query the OS file index. Returns None when no index is available."""
     if sys.platform == "darwin":
         # Spotlight. Note this silently skips volumes with indexing disabled,
         # which is why an empty result falls through to the walk.
-        out = _run(["mdfind", f"kMDItemFSName == '{pattern}'"])
+        cmd = ["mdfind"]
+        if scan_root:
+            cmd += ["-onlyin", scan_root]
+        cmd += [f"kMDItemFSName == '{pattern}'"]
+        out = _run(cmd)
         paths = [Path(line) for line in out.splitlines() if line.strip()]
         return paths or None
 
@@ -119,7 +139,10 @@ def _index_search(pattern: str) -> list[Path] | None:
         if not es:
             return None
         # Request only the full path so that names containing spaces cannot be
-        # mis-split by the caller.
+        # mis-split by the caller. CUSTODIAN_PROJECT_SCAN_ROOT is not wired up
+        # here -- unverified which es.exe flag scopes a search to one folder,
+        # and guessing wrong would silently return unscoped results for a
+        # feature whose whole point is scoping. macOS only for now.
         out = _run([es, pattern, "-full-path-and-name"])
         paths = [Path(line.strip()) for line in out.splitlines() if line.strip()]
         return paths or None
@@ -340,7 +363,7 @@ def find_projects(
         engine_installs = find_engine_installs(roots)
     engine_roots = [e.root for e in engine_installs]
 
-    found = _index_search("*.uproject")
+    found = _index_search("*.uproject", scan_root=_scan_root_override())
     if found is None:
         found = _walk_search(roots or default_roots(), ".uproject")
 

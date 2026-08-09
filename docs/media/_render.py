@@ -7,6 +7,10 @@ The capture directory holds plain-text output from actual runs (hero.txt,
 folder_before.txt, folder_after.txt, apply.txt). Keeping this script in the
 repo means the screenshots can be regenerated rather than being undocumented
 one-off images that quietly go stale as the output format changes.
+
+Capture that plain-text output against build_demo_data.sh's synthetic
+project tree, not a real one -- these screenshots are public, and a real
+project can carry a plugin/name that shouldn't be visible outside the repo.
 """
 
 from __future__ import annotations
@@ -135,10 +139,10 @@ def main() -> None:
 
     before_after = (
         '<div class="row">'
-        f'<div><h3>Before<span class="tag tb">8.7 GB</span></h3>'
-        f'{win("~/ue/ThirdPersonClass", color_du(read("folder_before.txt")))}</div>'
-        f'<div><h3>After<span class="tag ta">359 MB</span></h3>'
-        f'{win("~/ue/ThirdPersonClass", color_du(read("folder_after.txt")))}</div>'
+        f'<div><h3>Before<span class="tag tb">1.3 GB</span></h3>'
+        f'{win("~/ue/CityBuilderTest", color_du(read("folder_before.txt")))}</div>'
+        f'<div><h3>After<span class="tag ta">210 MB</span></h3>'
+        f'{win("~/ue/CityBuilderTest", color_du(read("folder_after.txt")))}</div>'
         "</div>"
     ) + win("custodian clean --apply", color_apply(read("apply.txt")))
     shoot("before-after", before_after, 1240, 700)

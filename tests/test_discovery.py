@@ -42,7 +42,7 @@ def test_launcher_manifest_finds_engines_off_the_search_roots(
         encoding="utf-8",
     )
     monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [manifest])
-    monkeypatch.setattr(discovery, "_index_search", lambda pattern: None)
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: None)
     monkeypatch.setattr(discovery, "_walk_search", lambda roots, suffix: [])
 
     installs = discovery.find_engine_installs(roots=[])
@@ -53,7 +53,7 @@ def test_source_built_engines_are_still_found_by_search(tmp_path: Path, monkeypa
     """The manifest only knows about launcher installs."""
     engine = make_engine(tmp_path / "SourceBuild", 5, 6)
     monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [])
-    monkeypatch.setattr(discovery, "_index_search", lambda pattern: None)
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: None)
     monkeypatch.setattr(
         discovery,
         "_walk_search",
@@ -67,7 +67,7 @@ def test_a_missing_or_corrupt_manifest_is_not_fatal(tmp_path: Path, monkeypatch)
     bad = tmp_path / "LauncherInstalled.dat"
     bad.write_text("{not json", encoding="utf-8")
     monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [bad, tmp_path / "nope.dat"])
-    monkeypatch.setattr(discovery, "_index_search", lambda pattern: None)
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: None)
     monkeypatch.setattr(discovery, "_walk_search", lambda roots, suffix: [])
     assert discovery.find_engine_installs(roots=[]) == []
 
@@ -85,7 +85,7 @@ def test_projects_inside_an_engine_install_are_excluded(tmp_path: Path, monkeypa
 
     monkeypatch.setattr(
         discovery, "_index_search",
-        lambda pattern: [template / "TP_Blank.uproject", mine / "MyGame.uproject"],
+        lambda pattern, **kwargs: [template / "TP_Blank.uproject", mine / "MyGame.uproject"],
     )
     projects = discovery.find_projects(
         engine_installs=[discovery.EngineInstall(root=engine, version="5.8.0")]
@@ -100,7 +100,7 @@ def test_a_path_returned_twice_is_one_project_not_zero(tmp_path: Path, monkeypat
     uproject = mine / "MyGame.uproject"
     uproject.write_text("{}", encoding="utf-8")
 
-    monkeypatch.setattr(discovery, "_index_search", lambda pattern: [uproject, uproject])
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: [uproject, uproject])
     projects = discovery.find_projects(engine_installs=[])
     assert len(projects) == 1
 
@@ -112,7 +112,7 @@ def test_a_project_folder_named_like_an_engine_is_kept(tmp_path: Path, monkeypat
     uproject = mine / "MyGame.uproject"
     uproject.write_text("{}", encoding="utf-8")
 
-    monkeypatch.setattr(discovery, "_index_search", lambda pattern: [uproject])
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: [uproject])
     assert [p.name for p in discovery.find_projects(engine_installs=[])] == ["MyGame"]
 
 
@@ -133,3 +133,46 @@ def test_walk_prunes_system_trees_and_caps_depth(tmp_path: Path) -> None:
     assert "MyGame.uproject" in found
     assert "Decoy.uproject" not in found  # pruned system tree
     assert "TooDeep.uproject" not in found  # past the depth cap
+
+
+def test_project_scan_root_override_scopes_the_project_search(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """CUSTODIAN_PROJECT_SCAN_ROOT restricts *project* discovery to one tree --
+    used to isolate a demo/screenshot folder from everything else on a real
+    machine (real case: a plugin embedded across many real projects that must
+    never appear in a public screenshot, even indirectly via its path)."""
+    monkeypatch.setenv("CUSTODIAN_PROJECT_SCAN_ROOT", "/some/demo/folder")
+    seen = {}
+
+    def fake_index_search(pattern, **kwargs):
+        seen[pattern] = kwargs.get("scan_root")
+        return None
+
+    monkeypatch.setattr(discovery, "_index_search", fake_index_search)
+    monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [])
+    monkeypatch.setattr(discovery, "_walk_search", lambda roots, suffix: [])
+
+    discovery.find_projects(roots=[], engine_installs=[])
+    assert seen["*.uproject"] == "/some/demo/folder"
+
+
+def test_engine_discovery_is_never_scoped_by_the_project_scan_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The override is deliberately project-only -- engine installs carry no
+    project-specific information worth isolating, and someone scoping a demo
+    folder still wants their real engines to show."""
+    monkeypatch.setenv("CUSTODIAN_PROJECT_SCAN_ROOT", "/some/demo/folder")
+    seen = {}
+
+    def fake_index_search(pattern, **kwargs):
+        seen[pattern] = kwargs.get("scan_root")
+        return None
+
+    monkeypatch.setattr(discovery, "_index_search", fake_index_search)
+    monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [])
+    monkeypatch.setattr(discovery, "_walk_search", lambda roots, suffix: [])
+
+    discovery.find_engine_installs(roots=[])
+    assert seen["Build.version"] is None
