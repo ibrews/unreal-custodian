@@ -171,8 +171,21 @@ class CustodianApp:
             side=tk.RIGHT
         )
 
+        # Indeterminate, not determinate: discovery has no known total until
+        # the "count" message arrives, and even that only covers projects,
+        # not engines. Packed/unpacked around scans rather than left visible
+        # -- a real first-launch report (empty tables, no rows, a discovery
+        # walk silently taking several seconds on an unindexed drive) reads
+        # as "broken" without this; a static label alone was easy to miss.
+        self.scan_progress = ttk.Progressbar(bar, mode="indeterminate")
+
         action_row = ttk.Frame(bar)
         action_row.pack(side=tk.TOP, fill=tk.X, pady=(8, 0))
+        # rescan() packs/unpacks scan_progress well after this point -- pack()
+        # stacks TOP-side siblings in call order, not creation order, so
+        # without an explicit `before` it would reappear below action_row
+        # (below the Clean Selected button) instead of under the status line.
+        self.action_row = action_row
         ttk.Checkbutton(
             action_row,
             text="Delete permanently instead of to Trash",
@@ -243,6 +256,7 @@ class CustodianApp:
         # actually explained.
         self.tree.tag_configure("eligible", foreground="#b3261e")
         self.tree.tag_configure("blocked", foreground="#8a8a8a")
+        self.tree.tag_configure("placeholder", foreground="#8a8a8a", font=("", 10, "italic"))
         self.tree.bind("<Double-1>", lambda _e: self.launch_project())
         # Selecting in one tree clears the other -- "Clean Selected" always
         # acts on an unambiguous set rather than silently unioning both.
@@ -320,6 +334,7 @@ class CustodianApp:
 
         self.engines.tag_configure("eligible", foreground="#b3261e")
         self.engines.tag_configure("blocked", foreground="#8a8a8a")
+        self.engines.tag_configure("placeholder", foreground="#8a8a8a", font=("", 10, "italic"))
         self.engines.bind("<Double-1>", lambda _e: self.launch_engine())
         self.engines.bind(
             "<<TreeviewSelect>>",
@@ -391,8 +406,12 @@ class CustodianApp:
                 self.engines.delete(key)
         self.reports.clear()
         self.engine_reports.clear()
-        self.status.set("Searching...")
+        self.status.set("Searching for Unreal projects and engine installs...")
         self.summary.set("")
+        self.scan_progress.pack(side=tk.TOP, fill=tk.X, pady=(4, 0), before=self.action_row)
+        self.scan_progress.start(12)
+        self._show_placeholder_row(self.tree, "__searching_projects__", "Searching...")
+        self._show_placeholder_row(self.engines, "__searching_engines__", "Searching...")
         engine_keys = frozenset(
             t.key for t in policy_mod.ENGINE_TARGETS if t.default_on
         ) | ({"engine_intermediate"} if self.engine_intermediate.get() else set()) \
@@ -438,6 +457,10 @@ class CustodianApp:
                     self.status.set(f"Error: {payload}")
                 elif kind == "done":
                     self.scanning = False
+                    self.scan_progress.stop()
+                    self.scan_progress.pack_forget()
+                    self._clear_placeholder_row(self.tree, "__searching_projects__", "No Unreal projects found on this machine.")
+                    self._clear_placeholder_row(self.engines, "__searching_engines__", "No engine installs found.")
                     self._refresh_summary()
                     self._autofit_sash()
                 elif kind == "clean_progress":
@@ -448,7 +471,32 @@ class CustodianApp:
             pass
         self.root.after(80, self._drain)
 
+    def _show_placeholder_row(self, tree: ttk.Treeview, iid: str, text: str) -> None:
+        # Re-running this resets the text even if the row is already there --
+        # a second Rescan must not leave a stale "No projects found" from the
+        # previous run sitting under a progress bar that says it's searching.
+        if tree.exists(iid):
+            tree.item(iid, text=text)
+        else:
+            tree.insert("", tk.END, iid=iid, text=text, tags=("placeholder",))
+
+    def _clear_placeholder_row(self, tree: ttk.Treeview, iid: str, empty_text: str) -> None:
+        """Drop the "Searching..." row once real data (or none) is known.
+
+        A scan that finds nothing looks identical to one still in progress if
+        this were left blank instead -- swap in an explicit empty-state
+        message rather than just deleting it.
+        """
+        if not tree.exists(iid):
+            return
+        if any(c != iid for c in tree.get_children()):
+            tree.delete(iid)
+        else:
+            tree.item(iid, text=empty_text)
+
     def _add_engine(self, report: EngineReport) -> None:
+        if self.engines.exists("__searching_engines__"):
+            self.engines.delete("__searching_engines__")
         key = str(report.engine.root)
         self.engine_reports[key] = report
         self.engines.insert(
@@ -476,6 +524,8 @@ class CustodianApp:
         return "eligible" if report.reclaimable_bytes > 0 else "blocked"
 
     def _add_project(self, report: ProjectReport) -> None:
+        if self.tree.exists("__searching_projects__"):
+            self.tree.delete("__searching_projects__")
         # Keyed by the .uproject, not the folder: a single directory can hold
         # more than one project, and keying by folder collides on those.
         key = str(report.project.uproject)
