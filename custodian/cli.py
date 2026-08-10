@@ -202,6 +202,24 @@ def _item_root(report: ProjectReport | EngineReport) -> Path:
     return report.project.root if isinstance(report, ProjectReport) else report.engine.root
 
 
+def _is_eligible_to_clean(report: ProjectReport, explicit: bool) -> bool:
+    """Whether an automatic `clean --apply` sweep may act on this project.
+
+    Age is a default, not an absolute block: it protects a project someone
+    might resume tomorrow from an unattended, whole-machine sweep with
+    nobody there to notice. `--only <name>` names one project explicitly --
+    the CLI equivalent of picking a row in the GUI and clicking Clean
+    Selected -- so it bypasses the age gate the same way that does. The
+    opted-out and nothing-to-reclaim checks are absolute either way.
+    """
+    return (
+        report.policy.enabled
+        and report.reclaimable_bytes > 0
+        and not report.error
+        and (report.age_eligible or explicit)
+    )
+
+
 def cmd_clean(args: argparse.Namespace) -> int:
     base = policy_mod.DEFAULT_POLICY
     if args.min_age_days is not None:
@@ -231,11 +249,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
         )
         return 0
 
-    eligible_projects = [
-        r
-        for r in reports
-        if r.policy.enabled and r.age_eligible and r.reclaimable_bytes > 0 and not r.error
-    ]
+    eligible_projects = [r for r in reports if _is_eligible_to_clean(r, explicit=bool(args.only))]
     eligible_engines = [r for r in engine_reports if r.reclaimable_bytes > 0]
     eligible: list[ProjectReport | EngineReport] = [*eligible_projects, *eligible_engines]
     if not eligible:

@@ -255,6 +255,7 @@ class CustodianApp:
         # legend row below the buttons, which is the only place that color is
         # actually explained.
         self.tree.tag_configure("eligible", foreground="#b3261e")
+        self.tree.tag_configure("caution", foreground="#9a6700")
         self.tree.tag_configure("blocked", foreground="#8a8a8a")
         self.tree.tag_configure("placeholder", foreground="#8a8a8a", font=("", 10, "italic"))
         self.tree.bind("<Double-1>", lambda _e: self.launch_project())
@@ -301,6 +302,10 @@ class CustodianApp:
         legend.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
         ttk.Label(legend, text="●", foreground="#b3261e").pack(side=tk.LEFT)
         ttk.Label(legend, text="ready to clean").pack(side=tk.LEFT, padx=(2, 12))
+        ttk.Label(legend, text="●", foreground="#9a6700").pack(side=tk.LEFT)
+        ttk.Label(legend, text="ready, but used recently — selecting it still works").pack(
+            side=tk.LEFT, padx=(2, 12)
+        )
         ttk.Label(legend, text="●", foreground="#8a8a8a").pack(side=tk.LEFT)
         ttk.Label(
             legend, text="not eligible right now — see the Status column for why",
@@ -568,20 +573,29 @@ class CustodianApp:
             return "never clean (.ueclean.json)"
         if report.skipped:
             return f"{report.skipped[0][1]}"
-        if not report.age_eligible:
-            return f"used recently (< {report.policy.min_age_days}d)"
         if report.reclaimable_bytes == 0:
             return "already clean"
+        if not report.age_eligible:
+            # Informational, not a block -- explicitly selecting this row and
+            # clicking Clean Selected still works. Silently dropping an
+            # explicit selection here was the actual complaint this replaced:
+            # a user picks a row, nothing happens, no explanation why.
+            return f"ready to clean (used within {report.policy.min_age_days}d — see note)"
         return "ready to clean"
 
+    def _is_actionable(self, report: ProjectReport) -> bool:
+        """Would resolve_targets() give this project anything to delete at
+        all -- age is deliberately NOT part of this. Recency is surfaced as
+        a caution color/status, not a block on an explicit selection; the
+        deeper per-target grace periods that ARE real hard blocks (autosaves
+        held back 90 days as possibly-unrecoverable crash work) live inside
+        resolve_targets() itself and are untouched by this."""
+        return report.policy.enabled and report.reclaimable_bytes > 0 and not report.error
+
     def _tag(self, report: ProjectReport) -> str:
-        eligible = (
-            report.policy.enabled
-            and report.age_eligible
-            and report.reclaimable_bytes > 0
-            and not report.error
-        )
-        return "eligible" if eligible else "blocked"
+        if not self._is_actionable(report):
+            return "blocked"
+        return "eligible" if report.age_eligible else "caution"
 
     def _refresh_summary(self) -> None:
         proj_total = sum(r.reclaimable_bytes for r in self.reports.values())
@@ -632,7 +646,7 @@ class CustodianApp:
         actual clean action, so the number on screen can never drift from
         what clicking the button actually reclaims.
         """
-        projects = [r for r in self._selected_projects() if self._tag(r) == "eligible"]
+        projects = [r for r in self._selected_projects() if self._tag(r) in ("eligible", "caution")]
         engines = [r for r in self._selected_engines() if self._engine_tag(r) == "eligible"]
         return [*projects, *engines]
 
@@ -808,11 +822,23 @@ class CustodianApp:
         lines = "\n".join(f"  {name} — {human(r.reclaimable_bytes)}" for name, r in names[:12])
         if len(names) > 12:
             lines += f"\n  ... and {len(names) - 12} more"
+        recent = [
+            r for r in chosen
+            if isinstance(r, ProjectReport) and not r.age_eligible
+        ]
+        caution = ""
+        if recent:
+            plural = "project was" if len(recent) == 1 else "of these projects were"
+            caution = (
+                f"\n\n{len(recent)} {plural} used within the last "
+                f"{recent[0].policy.min_age_days} days -- reclaiming its cache now "
+                "means a slower rebuild/DDC re-derive next time you open it."
+            )
         if not messagebox.askokcancel(
             "Clean these?",
             f"{human(total)} will be {where}:\n\n{lines}\n\n"
             "Authored content, Config, save games, and a launcher-installed "
-            "engine's own binaries are never touched.",
+            f"engine's own binaries are never touched.{caution}",
             icon=messagebox.WARNING,
         ):
             return
