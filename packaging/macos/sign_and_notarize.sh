@@ -36,8 +36,20 @@ ZIP="$HERE/dist/Unreal Custodian (macOS).zip"
 echo "Finding every Mach-O binary in the bundle..."
 MACHO_LIST="$(mktemp)"
 trap 'rm -f "$MACHO_LIST"' EXIT
+# `grep -q ... && printf ...` as the loop body looks equivalent to an if/then
+# but is not under `set -eo pipefail`: when the LAST file find walks isn't a
+# Mach-O binary, grep's non-match exit status becomes the while loop's exit
+# status, which becomes the pipeline's exit status, which set -e treats as
+# fatal -- the script dies right here, silently, order-dependent on
+# whichever file find happens to walk last. Confirmed the hard way
+# (2026-08-10): worked on the first build purely by luck of file ordering,
+# then killed a rebuild outright with no error beyond a bare exit 1. An
+# if/then does not have this problem -- its own exit status is 0 when the
+# condition is false, unlike a bare && chain's.
 find "$APP" -type f -print0 | while IFS= read -r -d '' f; do
-  file -b "$f" 2>/dev/null | grep -q "Mach-O" && printf '%s\n' "$f"
+  if file -b "$f" 2>/dev/null | grep -q "Mach-O"; then
+    printf '%s\n' "$f"
+  fi
 done > "$MACHO_LIST"
 echo "  found $(wc -l < "$MACHO_LIST" | tr -d ' ') Mach-O files"
 
