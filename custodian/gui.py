@@ -28,11 +28,12 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from . import policy as policy_mod
 from . import runlog
 from . import safedelete
+from . import settings as settings_mod
 from .discovery import find_engine_installs, find_projects
 from .sizing import EngineReport, ProjectReport, free_bytes, human, scan_engine, scan_project
 
@@ -105,6 +106,9 @@ class CustodianApp:
         }
         self.targets_summary = tk.StringVar(value="")
         self._refresh_targets_summary()
+
+        self.roots_summary = tk.StringVar(value="")
+        self._refresh_roots_summary()
 
         self._build_layout()
         self.root.after(80, self._drain)
@@ -271,6 +275,10 @@ class CustodianApp:
         buttons = ttk.Frame(frame)
         buttons.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
         ttk.Button(buttons, text="Rescan", command=self.rescan).pack(side=tk.LEFT)
+        self.roots_button = ttk.Button(
+            buttons, textvariable=self.roots_summary, command=self.open_search_settings
+        )
+        self.roots_button.pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(buttons, text="Select All", command=self.select_all_projects).pack(
             side=tk.LEFT, padx=(8, 0)
         )
@@ -301,7 +309,7 @@ class CustodianApp:
         legend = ttk.Frame(frame)
         legend.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
         ttk.Label(legend, text="●", foreground="#b3261e").pack(side=tk.LEFT)
-        ttk.Label(legend, text="ready to clean").pack(side=tk.LEFT, padx=(2, 12))
+        ttk.Label(legend, text="candidate to clean").pack(side=tk.LEFT, padx=(2, 12))
         ttk.Label(legend, text="●", foreground="#9a6700").pack(side=tk.LEFT)
         ttk.Label(legend, text="ready, but used recently — selecting it still works").pack(
             side=tk.LEFT, padx=(2, 12)
@@ -381,7 +389,7 @@ class CustodianApp:
         legend = ttk.Frame(frame)
         legend.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(6, 0))
         ttk.Label(legend, text="●", foreground="#b3261e").pack(side=tk.LEFT)
-        ttk.Label(legend, text="ready to clean").pack(side=tk.LEFT, padx=(2, 12))
+        ttk.Label(legend, text="candidate to clean").pack(side=tk.LEFT, padx=(2, 12))
         ttk.Label(legend, text="●", foreground="#8a8a8a").pack(side=tk.LEFT)
         ttk.Label(
             legend, text="not eligible right now — see the Status column for why",
@@ -523,7 +531,7 @@ class CustodianApp:
             return report.skipped[0][1]
         if report.reclaimable_bytes == 0:
             return "already clean"
-        return "ready to clean"
+        return "candidate to clean"
 
     def _engine_tag(self, report: EngineReport) -> str:
         return "eligible" if report.reclaimable_bytes > 0 else "blocked"
@@ -580,8 +588,8 @@ class CustodianApp:
             # clicking Clean Selected still works. Silently dropping an
             # explicit selection here was the actual complaint this replaced:
             # a user picks a row, nothing happens, no explanation why.
-            return f"ready to clean (used within {report.policy.min_age_days}d — see note)"
-        return "ready to clean"
+            return f"candidate to clean (used within {report.policy.min_age_days}d — see note)"
+        return "candidate to clean"
 
     def _is_actionable(self, report: ProjectReport) -> bool:
         """Would resolve_targets() give this project anything to delete at
@@ -790,6 +798,96 @@ class CustodianApp:
         dialog.destroy()
         self.rescan()
 
+    def _refresh_roots_summary(self) -> None:
+        current = settings_mod.load_settings()
+        if current.scan_all_drives:
+            self.roots_summary.set("Search Settings (all drives)…")
+        else:
+            n = len(current.included_roots)
+            noun = "folder" if n == 1 else "folders"
+            self.roots_summary.set(f"Search Settings ({n} {noun})…")
+
+    def open_search_settings(self) -> None:
+        """Choose whether discovery searches every drive or only specific
+        folders/drives you pick.
+
+        Off by default -- most people want everything found. This exists
+        for the machine where "everywhere" is actively wrong: a slow or
+        unreliable network/backup drive that happens to be mounted, or
+        simply wanting only the drive(s) Unreal projects actually live on
+        considered. Persisted to settings.json; CUSTODIAN_PROJECT_SCAN_ROOT
+        / CUSTODIAN_ENGINE_SCAN_ROOT env vars still override this when set.
+        """
+        current = settings_mod.load_settings()
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Search Settings")
+        dialog.transient(self.root)
+        dialog.resizable(False, True)
+
+        ttk.Label(
+            dialog, text="Which drives and folders should be searched for "
+            "Unreal projects and engine installs:",
+            wraplength=440, justify=tk.LEFT,
+        ).pack(anchor=tk.W, padx=14, pady=(14, 8))
+
+        scan_all = tk.BooleanVar(value=current.scan_all_drives)
+        ttk.Radiobutton(
+            dialog, text="Search all drives (default)", variable=scan_all, value=True,
+        ).pack(anchor=tk.W, padx=14)
+        ttk.Radiobutton(
+            dialog, text="Only search these folders/drives:", variable=scan_all, value=False,
+        ).pack(anchor=tk.W, padx=14, pady=(2, 4))
+
+        list_frame = ttk.Frame(dialog)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=14)
+        listbox = tk.Listbox(list_frame, height=6, exportselection=False)
+        for root in current.included_roots:
+            listbox.insert(tk.END, root)
+        vsb = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=listbox.yview)
+        listbox.configure(yscrollcommand=vsb.set)
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.LEFT, fill=tk.Y)
+
+        def add_folder() -> None:
+            chosen = filedialog.askdirectory(parent=dialog, title="Add a folder or drive")
+            if chosen:
+                listbox.insert(tk.END, chosen)
+                scan_all.set(False)
+
+        def remove_selected() -> None:
+            for index in reversed(listbox.curselection()):
+                listbox.delete(index)
+
+        list_buttons = ttk.Frame(dialog)
+        list_buttons.pack(fill=tk.X, padx=14, pady=(6, 0))
+        ttk.Button(list_buttons, text="Add Folder...", command=add_folder).pack(side=tk.LEFT)
+        ttk.Button(list_buttons, text="Remove Selected", command=remove_selected).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
+
+        def save() -> None:
+            if scan_all.get():
+                settings_mod.save_settings(current.with_all_drives())
+            else:
+                roots = list(listbox.get(0, tk.END))
+                if not roots:
+                    messagebox.showinfo(
+                        "Nothing to search",
+                        "Add at least one folder, or choose “Search all drives”.",
+                    )
+                    return
+                settings_mod.save_settings(current.with_included_roots(roots))
+            self._refresh_roots_summary()
+            dialog.destroy()
+            self.rescan()
+
+        buttons = ttk.Frame(dialog)
+        buttons.pack(fill=tk.X, padx=14, pady=12)
+        ttk.Button(buttons, text="Save", command=save).pack(side=tk.RIGHT)
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(
+            side=tk.RIGHT, padx=(0, 8)
+        )
+
     def _warn_permanent(self) -> None:
         if not self.permanent.get():
             return
@@ -811,7 +909,7 @@ class CustodianApp:
         if not chosen:
             messagebox.showinfo(
                 "Nothing to clean",
-                "Select one or more rows marked “ready to clean”, "
+                "Select one or more rows marked “candidate to clean”, "
                 "in either the project list or the engine list.",
             )
             return

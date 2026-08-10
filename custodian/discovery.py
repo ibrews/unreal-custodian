@@ -16,6 +16,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import settings as settings_mod
+
 # Directory names that never contain a project we care about, and that are
 # expensive to descend into during the fallback walk.
 _PRUNE_DIRS = {
@@ -105,35 +107,66 @@ def _everything_exe() -> str | None:
     return str(local) if local.exists() else None
 
 
-def _scan_root_override() -> str | None:
-    """Restrict *project* discovery to one directory tree, if
-    CUSTODIAN_PROJECT_SCAN_ROOT is set.
+def _env_scan_roots(var_name: str) -> list[str] | None:
+    """A single explicit root from an env var, wrapped as a one-item list.
 
-    Not a normal end-user setting -- for scoping a scan to a specific folder
-    (a demo/screenshot directory, a single project tree you want isolated
-    from everything else the index would otherwise return) without touching
-    anything else on the machine. Deliberately scoped to the *.uproject
-    search only, not engine discovery (Build.version): a project's own path
-    is what this exists to hide, and someone demoing one project tree
-    usually still wants their real engines to show. That does NOT mean
-    engine paths are always safe to leave unscoped, though -- an engine
-    root's own path can carry the same kind of sensitive naming a project's
-    can (a source build folder named after the client it was built for). Use
-    CUSTODIAN_ENGINE_SCAN_ROOT for that case; the two are independent.
+    Not a normal end-user setting -- for scoping a scan to one specific
+    folder (a demo/screenshot directory, a project tree isolated from
+    everything else the index would otherwise return) without touching
+    anything else on the machine, and without requiring a settings file to
+    exist. CUSTODIAN_PROJECT_SCAN_ROOT and CUSTODIAN_ENGINE_SCAN_ROOT are
+    deliberately independent -- see _project_scan_roots/_engine_scan_roots.
     """
-    return os.environ.get("CUSTODIAN_PROJECT_SCAN_ROOT") or None
+    value = os.environ.get(var_name)
+    return [value] if value else None
 
 
-def _index_search(pattern: str, *, scan_root: str | None = None) -> list[Path] | None:
+def _project_scan_roots() -> list[str] | None:
+    """Roots to restrict *project* discovery to, or None for unrestricted.
+
+    CUSTODIAN_PROJECT_SCAN_ROOT wins if set (see _env_scan_roots). Otherwise
+    falls through to the user's own persisted Settings ("only search these
+    drives/folders") -- unlike the env vars, one Settings.included_roots
+    list scopes both projects and engines identically, because that is the
+    mental model a user reaches for this with: "only look here at all," not
+    "look here for projects but somewhere else for engines."
+    """
+    env = _env_scan_roots("CUSTODIAN_PROJECT_SCAN_ROOT")
+    if env is not None:
+        return env
+    resolved = settings_mod.load_settings().resolved_roots()
+    return [str(r) for r in resolved] if resolved is not None else None
+
+
+def _engine_scan_roots() -> list[str] | None:
+    """Roots to restrict *engine* discovery to, or None for unrestricted.
+
+    An engine root's own path can carry the same kind of sensitive naming a
+    project's can (a source build folder named after the client it was
+    built for) -- real case, not hypothetical. CUSTODIAN_ENGINE_SCAN_ROOT
+    wins if set; otherwise the same user Settings as _project_scan_roots.
+    """
+    env = _env_scan_roots("CUSTODIAN_ENGINE_SCAN_ROOT")
+    if env is not None:
+        return env
+    resolved = settings_mod.load_settings().resolved_roots()
+    return [str(r) for r in resolved] if resolved is not None else None
+
+
+def _index_search(pattern: str, *, scan_roots: list[str] | None = None) -> list[Path] | None:
     """Query the OS file index. Returns None when no index is available."""
     if sys.platform == "darwin":
         # Spotlight. Note this silently skips volumes with indexing disabled,
         # which is why an empty result falls through to the walk.
-        cmd = ["mdfind"]
-        if scan_root:
-            cmd += ["-onlyin", scan_root]
-        cmd += [f"kMDItemFSName == '{pattern}'"]
-        out = _run(cmd)
+        if scan_roots:
+            # mdfind's -onlyin takes one directory, not a list -- restricting
+            # to N roots means N calls, merged.
+            paths: list[Path] = []
+            for root in scan_roots:
+                out = _run(["mdfind", "-onlyin", root, f"kMDItemFSName == '{pattern}'"])
+                paths.extend(Path(line) for line in out.splitlines() if line.strip())
+            return paths or None
+        out = _run(["mdfind", f"kMDItemFSName == '{pattern}'"])
         paths = [Path(line) for line in out.splitlines() if line.strip()]
         return paths or None
 
@@ -142,12 +175,12 @@ def _index_search(pattern: str, *, scan_root: str | None = None) -> list[Path] |
         if not es:
             return None
         # Request only the full path so that names containing spaces cannot be
-        # mis-split by the caller. CUSTODIAN_PROJECT_SCAN_ROOT is not passed
-        # to es.exe here -- unverified which flag scopes a search to one
-        # folder, and guessing wrong would silently return unscoped results.
-        # find_projects() filters the result set to scan_root afterward
-        # regardless, so an unscoped result from here is still safe, just
-        # slower than an es.exe-native scope would be.
+        # mis-split by the caller. scan_roots is not passed to es.exe here --
+        # unverified which flag scopes a search to specific folders, and
+        # guessing wrong would silently return unscoped results. Every caller
+        # filters the result set to scan_roots afterward regardless, so an
+        # unscoped result from here is still safe, just slower than an
+        # es.exe-native scope would be.
         out = _run([es, pattern, "-full-path-and-name"])
         paths = [Path(line.strip()) for line in out.splitlines() if line.strip()]
         return paths or None
@@ -298,49 +331,37 @@ def _is_installed_build(engine_root: Path) -> bool:
     return True
 
 
-def _engine_scan_root_override() -> str | None:
-    """Restrict *engine* discovery to one directory tree, if
-    CUSTODIAN_ENGINE_SCAN_ROOT is set.
-
-    Deliberately separate from CUSTODIAN_PROJECT_SCAN_ROOT, and never implied
-    by it: a real user wants engine installs shown unscoped -- that IS the
-    tool's value on the engine side. This only matters for a demo/screenshot
-    on a machine whose own engine *paths* carry sensitive information -- a
-    source build folder named after the client it was built for, a partner
-    name baked into a checkout path (both real cases, not hypothetical: see
-    intelligence/decisions in this repo's history). CUSTODIAN_PROJECT_SCAN_ROOT
-    scoping projects does not make engine paths safe, because an engine root
-    carries no relationship to any project root at all.
-    """
-    return os.environ.get("CUSTODIAN_ENGINE_SCAN_ROOT") or None
-
-
 def find_engine_installs(roots: list[Path] | None = None) -> list[EngineInstall]:
     """Locate engine installs, launcher manifest first, then by searching."""
-    engine_scan_root = _engine_scan_root_override()
+    engine_roots_restriction = _engine_scan_roots()
     installs: dict[Path, EngineInstall] = {}
-    if engine_scan_root is None:
-        # The launcher manifest lists only real, launcher-installed engines --
-        # there's no synthetic entry it could ever return, so scoping it can
-        # only mean skipping it outright.
+    if engine_roots_restriction is None:
+        # Consulting the manifest directly (rather than only searching for
+        # Build.version) matters when unrestricted: it finds an engine on a
+        # drive the search roots don't cover. When restricted, skip it --
+        # not a loss, because a launcher-installed engine still has its own
+        # Build.version on disk, so it's found the same way as any other
+        # engine by the search below if it's actually under an allowed root.
         for engine_root in _launcher_engine_roots():
             engine = _engine_from_root(engine_root)
             if engine:
                 installs[engine.root] = engine
 
     # Source builds and manually-installed engines are not in the manifest.
-    found = _index_search("Build.version", scan_root=engine_scan_root)
+    found = _index_search("Build.version", scan_roots=engine_roots_restriction)
     if found is None:
         walk_roots = (
-            [Path(engine_scan_root)] if engine_scan_root else (roots or default_roots())
+            [Path(r) for r in engine_roots_restriction]
+            if engine_roots_restriction
+            else (roots or default_roots())
         )
         found = _walk_search(walk_roots, "Build.version")
 
-    if engine_scan_root is not None:
+    if engine_roots_restriction is not None:
         # Same defense in depth as find_projects(): don't trust that the
         # index actually honored the scope (es.exe's support is unverified).
-        base = Path(engine_scan_root).resolve()
-        found = [p for p in found if _is_within(p, base)]
+        bases = [Path(r).resolve() for r in engine_roots_restriction]
+        found = [p for p in found if _is_within(p, bases)]
 
     for manifest in found:
         # .../<EngineRoot>/Engine/Build/Build.version
@@ -390,12 +411,18 @@ def _engine_association(uproject: Path) -> str:
     return str(data.get("EngineAssociation") or "not specified")
 
 
-def _is_within(path: Path, base: Path) -> bool:
+def _is_within(path: Path, bases: list[Path]) -> bool:
     try:
-        path.resolve().relative_to(base)
-        return True
-    except (OSError, ValueError):
+        resolved = path.resolve()
+    except OSError:
         return False
+    for base in bases:
+        try:
+            resolved.relative_to(base)
+            return True
+        except ValueError:
+            continue
+    return False
 
 
 def find_projects(
@@ -407,21 +434,22 @@ def find_projects(
         engine_installs = find_engine_installs(roots)
     engine_roots = [e.root for e in engine_installs]
 
-    scan_root = _scan_root_override()
-    found = _index_search("*.uproject", scan_root=scan_root)
+    roots_restriction = _project_scan_roots()
+    found = _index_search("*.uproject", scan_roots=roots_restriction)
     if found is None:
-        walk_roots = [Path(scan_root)] if scan_root else (roots or default_roots())
+        walk_roots = (
+            [Path(r) for r in roots_restriction] if roots_restriction else (roots or default_roots())
+        )
         found = _walk_search(walk_roots, ".uproject")
 
-    if scan_root is not None:
+    if roots_restriction is not None:
         # Defense in depth, not just belt-and-suspenders: es.exe's own scoping
         # support is unverified (see _index_search), so a result that reached
         # here from the index path may not actually be scoped at all. A
-        # demo/screenshot restriction has to be airtight regardless of which
-        # discovery path produced `found`, not contingent on every path
-        # honoring it correctly.
-        base = Path(scan_root).resolve()
-        found = [p for p in found if _is_within(p, base)]
+        # restriction has to be airtight regardless of which discovery path
+        # produced `found`, not contingent on every path honoring it.
+        bases = [Path(r).resolve() for r in roots_restriction]
+        found = [p for p in found if _is_within(p, bases)]
 
     # Deduplicate by resolved path. A path returned twice by the index is one
     # project, not zero -- last write wins.

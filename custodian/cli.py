@@ -16,6 +16,7 @@ from pathlib import Path
 from . import policy as policy_mod
 from . import runlog
 from . import safedelete
+from . import settings as settings_mod
 from .discovery import find_engine_installs, find_projects, index_available
 from .sizing import (
     EngineReport,
@@ -191,6 +192,45 @@ def cmd_report(args: argparse.Namespace) -> int:
     print(f"TOTAL RECLAIMABLE: {human(total)}")
     print(f"FREE ON THIS VOLUME: {human(free)}")
     print("\nNothing was deleted. `custodian clean` shows what a cleanup would remove.")
+    return 0
+
+
+def cmd_roots(args: argparse.Namespace) -> int:
+    """View or change which drives/folders discovery is allowed to search.
+
+    Same setting the GUI's "Search Settings..." dialog edits -- one
+    settings.json, whichever surface last wrote it wins. CUSTODIAN_PROJECT_
+    SCAN_ROOT / CUSTODIAN_ENGINE_SCAN_ROOT (env vars) still override this
+    when set; those are a narrower, explicit mechanism and are untouched.
+    """
+    current = settings_mod.load_settings()
+
+    if args.all:
+        settings_mod.save_settings(current.with_all_drives())
+        print("Searching all drives (default).")
+        return 0
+
+    if args.set is not None:
+        if not args.set:
+            print("Pass at least one path with --set, or use --all to search everywhere.")
+            return 1
+        for raw in args.set:
+            if not Path(raw).is_dir():
+                print(f"Warning: {raw} does not exist or is not a directory (saved anyway --")
+                print("  a drive that's temporarily unmounted is still a valid setting).")
+        settings_mod.save_settings(current.with_included_roots(args.set))
+        print(f"Searching only: {', '.join(args.set)}")
+        return 0
+
+    # No flag: just show the current setting.
+    if current.scan_all_drives:
+        print("Searching all drives (default). Use --set to restrict, e.g.:")
+        print("  custodian roots --set D:\\ E:\\Projects")
+    else:
+        print("Searching only:")
+        for root in current.included_roots:
+            print(f"  {root}")
+        print("\nUse --all to search every drive again.")
     return 0
 
 
@@ -374,6 +414,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_engine_flags(clean)
     clean.set_defaults(func=cmd_clean)
+
+    roots = sub.add_parser(
+        "roots", help="view or change which drives/folders discovery searches"
+    )
+    roots.add_argument(
+        "--set", nargs="+", metavar="PATH",
+        help="search only these paths from now on (persisted)",
+    )
+    roots.add_argument(
+        "--all", action="store_true", help="search every drive again (the default)"
+    )
+    roots.set_defaults(func=cmd_roots)
     return parser
 
 

@@ -146,7 +146,7 @@ def test_project_scan_root_override_scopes_the_project_search(
     seen = {}
 
     def fake_index_search(pattern, **kwargs):
-        seen[pattern] = kwargs.get("scan_root")
+        seen[pattern] = kwargs.get("scan_roots")
         return None
 
     monkeypatch.setattr(discovery, "_index_search", fake_index_search)
@@ -154,7 +154,7 @@ def test_project_scan_root_override_scopes_the_project_search(
     monkeypatch.setattr(discovery, "_walk_search", lambda roots, suffix: [])
 
     discovery.find_projects(roots=[], engine_installs=[])
-    assert seen["*.uproject"] == "/some/demo/folder"
+    assert seen["*.uproject"] == ["/some/demo/folder"]
 
 
 def test_engine_discovery_is_never_scoped_by_the_project_scan_root(
@@ -167,7 +167,7 @@ def test_engine_discovery_is_never_scoped_by_the_project_scan_root(
     seen = {}
 
     def fake_index_search(pattern, **kwargs):
-        seen[pattern] = kwargs.get("scan_root")
+        seen[pattern] = kwargs.get("scan_roots")
         return None
 
     monkeypatch.setattr(discovery, "_index_search", fake_index_search)
@@ -242,7 +242,7 @@ def test_engine_scan_root_is_independent_of_the_project_scan_root(
     seen = {}
 
     def fake_index_search(pattern, **kwargs):
-        seen[pattern] = kwargs.get("scan_root")
+        seen[pattern] = kwargs.get("scan_roots")
         return None
 
     monkeypatch.setattr(discovery, "_index_search", fake_index_search)
@@ -250,7 +250,7 @@ def test_engine_scan_root_is_independent_of_the_project_scan_root(
     monkeypatch.setattr(discovery, "_walk_search", lambda roots, suffix: [])
 
     discovery.find_engine_installs(roots=[])
-    assert seen["Build.version"] == "/some/demo/folder"
+    assert seen["Build.version"] == ["/some/demo/folder"]
 
 
 def test_engine_scan_root_skips_the_launcher_manifest(tmp_path: Path, monkeypatch) -> None:
@@ -293,3 +293,96 @@ def test_engine_scan_root_scopes_the_walk_fallback_and_filters_the_index(
 
     installs = discovery.find_engine_installs(roots=[])
     assert [e.root for e in installs] == [safe]
+
+
+def test_persisted_settings_scope_both_projects_and_engines(tmp_path: Path, monkeypatch) -> None:
+    """Unlike the env vars (deliberately independent), a user's own Settings
+    ("only search these drives") apply identically on both sides -- the
+    mental model is "only look here at all," not project-vs-engine."""
+    from custodian import settings as settings_mod
+
+    monkeypatch.delenv("CUSTODIAN_PROJECT_SCAN_ROOT", raising=False)
+    monkeypatch.delenv("CUSTODIAN_ENGINE_SCAN_ROOT", raising=False)
+    monkeypatch.setattr(
+        settings_mod,
+        "load_settings",
+        lambda: settings_mod.Settings().with_included_roots(["/allowed/one", "/allowed/two"]),
+    )
+
+    seen = {}
+
+    def fake_index_search(pattern, **kwargs):
+        seen[pattern] = kwargs.get("scan_roots")
+        return None
+
+    monkeypatch.setattr(discovery, "_index_search", fake_index_search)
+    monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [])
+    monkeypatch.setattr(discovery, "_walk_search", lambda roots, suffix: [])
+
+    discovery.find_engine_installs(roots=[])
+    discovery.find_projects(roots=[], engine_installs=[])
+    assert seen["Build.version"] == ["/allowed/one", "/allowed/two"]
+    assert seen["*.uproject"] == ["/allowed/one", "/allowed/two"]
+
+
+def test_env_var_still_wins_over_persisted_settings(tmp_path: Path, monkeypatch) -> None:
+    """The demo/screenshot env var is a narrower, explicit override and
+    should not be silently widened by whatever the user's Settings say."""
+    from custodian import settings as settings_mod
+
+    monkeypatch.setenv("CUSTODIAN_PROJECT_SCAN_ROOT", "/demo/only")
+    monkeypatch.setattr(
+        settings_mod,
+        "load_settings",
+        lambda: settings_mod.Settings().with_included_roots(["/allowed/one", "/allowed/two"]),
+    )
+
+    seen = {}
+
+    def fake_index_search(pattern, **kwargs):
+        seen[pattern] = kwargs.get("scan_roots")
+        return None
+
+    monkeypatch.setattr(discovery, "_index_search", fake_index_search)
+    monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [])
+    monkeypatch.setattr(discovery, "_walk_search", lambda roots, suffix: [])
+
+    discovery.find_projects(roots=[], engine_installs=[])
+    assert seen["*.uproject"] == ["/demo/only"]
+
+
+def test_multi_root_walk_fallback_covers_every_configured_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Two allowed drives/folders, no index available -- the walk fallback
+    has to actually search both, not just the first."""
+    from custodian import settings as settings_mod
+
+    root_a = tmp_path / "DriveA"
+    root_b = tmp_path / "DriveB"
+    proj_a = root_a / "ProjA" / "ProjA.uproject"
+    proj_b = root_b / "ProjB" / "ProjB.uproject"
+    for p in (proj_a, proj_b):
+        p.parent.mkdir(parents=True)
+        p.write_text("{}", encoding="utf-8")
+
+    monkeypatch.delenv("CUSTODIAN_PROJECT_SCAN_ROOT", raising=False)
+    monkeypatch.setattr(
+        settings_mod,
+        "load_settings",
+        lambda: settings_mod.Settings().with_included_roots([str(root_a), str(root_b)]),
+    )
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: None)
+    monkeypatch.setattr(discovery, "_launcher_manifests", lambda: [])
+
+    seen_roots = []
+
+    def fake_walk(roots, suffix):
+        seen_roots.extend(roots)
+        return [proj_a, proj_b]
+
+    monkeypatch.setattr(discovery, "_walk_search", fake_walk)
+
+    projects = discovery.find_projects(roots=[], engine_installs=[])
+    assert set(seen_roots) == {root_a, root_b}
+    assert {p.name for p in projects} == {"ProjA", "ProjB"}

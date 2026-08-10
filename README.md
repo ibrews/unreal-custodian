@@ -51,6 +51,16 @@ Requires Python 3.9+. No dependencies for the CLI.
 
 On Windows, install [Everything](https://www.voidtools.com/downloads/#cli) and put `es.exe` on your `PATH` (or beside this README) for instant project discovery. On macOS, Spotlight is used and there is nothing to install. Without either, a slower filesystem walk is used as a fallback.
 
+By default every drive gets searched. To restrict that — a slow or unreliable network/backup drive that happens to be mounted, or just wanting only the drive(s) Unreal projects actually live on considered — use **Search Settings…** in the GUI, or on the CLI:
+
+```bash
+python3 -m custodian.cli roots --set D:\ E:\Projects
+python3 -m custodian.cli roots            # show the current setting
+python3 -m custodian.cli roots --all      # back to searching everywhere
+```
+
+The setting is persisted (`~/.config/unreal-custodian/settings.json`, `%LOCALAPPDATA%\unreal-custodian\settings.json` on Windows) and shared by the CLI and GUI.
+
 ## Things to Try
 
 1. **See what you're sitting on.** `python3 -m custodian.cli report` — inventories every Unreal project and engine install on the machine and prints total reclaimable bytes. Nothing is deleted; there is no flag that makes `report` destructive.
@@ -135,10 +145,11 @@ Sortable table of every project with its reclaimable size, last-touched date, en
 - **First launch (and every Rescan) shows a progress bar and a "Searching..." row** in both tables while discovery runs — on an unindexed drive that can take several seconds with nothing to show for it otherwise, which read as a hung or broken app before this. A scan that finds nothing says so explicitly ("No Unreal projects found on this machine") rather than leaving an empty table indistinguishable from one still loading.
 - **Select All / Select None**, and **Hide fully cleaned** to drop already-clean rows out of view without losing their data — they reappear the moment you uncheck it.
 - **"Clean targets (N/12)…"** picks which reclaimable folders are in scope for any project without its own `.ueclean.json` — the same list in [Configuration](#per-project-configuration), as checkboxes instead of hand-edited JSON. A project's own config file still wins over this if one exists.
+- **"Search Settings…"** restricts discovery to specific drives/folders instead of searching everywhere — see [Install](#install) above. Same setting either surface edits; whichever saved last wins.
 - **Launch Engine** opens the editor with no project loaded, the same as launching Unreal itself from that install.
 - The two engine checkboxes mirror `--engine-intermediate`/`--engine-binaries` above — split for the same reason: reclaiming Intermediate doesn't stop the editor from opening, reclaiming Binaries does.
 - **"N selected to reclaim"** in the bottom-right tracks your current selection live, in either table — not the total across the whole machine — so it always matches exactly what **Clean Selected** would do if you clicked it right now.
-- **Red vs. grey rows** — the legend under each table spells it out: red is ready to clean, grey means not eligible right now (age, ownership, or already clean — the Status column says which).
+- **Red / amber / grey rows** — the legend under each table spells it out: red is a candidate to clean, amber is also a candidate but was used within the last 14 days (selecting and cleaning it still works — the amber is a heads-up, not a block), grey means not eligible at all (opted out, already clean, or a real safety refusal — the Status column says which).
 - **Cleaning shows real progress**, not a frozen window. A real run is one to five minutes; it runs on a background thread with a progress bar tracking bytes reclaimed, a "Cancel remaining" button, and a live label naming whatever it's working on right now.
 - **Every clean run writes a full log** to `~/.local/state/unreal-custodian/logs/` (`%LOCALAPPDATA%\unreal-custodian\logs\` on Windows) — every item, every failure, never truncated. The completion dialog only shows the first 8 failures inline; the log has all of them, and its path is in that same dialog.
 
