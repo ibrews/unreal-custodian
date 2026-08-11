@@ -36,6 +36,30 @@ def linkedin_share_url() -> str:
     )
 
 
+def fetch_public_totals(timeout: float = 5.0) -> dict | None:
+    """GET the current public tally.
+
+    Returns {"total_bytes": int, "total_reports": int}, or None on any
+    failure (no internet, server down, unexpected response shape) -- the
+    caller's job is to fall back to a locally cached value, not to treat
+    this as an error. Called on every GUI launch, so it has to fail fast
+    and fail quiet.
+    """
+    try:
+        req = urllib.request.Request(REPORT_URL, method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            if not (200 <= resp.status < 300):
+                return None
+            data = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return None
+    total_bytes = data.get("totalBytes")
+    total_reports = data.get("totalReports")
+    if not isinstance(total_bytes, (int, float)) or not isinstance(total_reports, (int, float)):
+        return None
+    return {"total_bytes": int(total_bytes), "total_reports": int(total_reports)}
+
+
 def report_anonymously(bytes_reclaimed: int, timeout: float = 5.0) -> bool:
     """POST an anonymous byte count to the public tally.
 

@@ -13,6 +13,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from . import __version__
 from . import policy as policy_mod
 from . import runlog
 from . import safedelete
@@ -386,6 +387,10 @@ def cmd_clean(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="custodian", description="Find and reclaim regeneratable Unreal Engine build caches."
+    )
+    parser.add_argument(
+        "--version", action="version",
+        version=f"Unreal Custodian {__version__} — made by @ibrews & @nocxr",
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="suppress progress output")
     sub = parser.add_subparsers(dest="command", required=True)

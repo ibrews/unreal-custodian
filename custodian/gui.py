@@ -32,6 +32,7 @@ import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from . import __version__
 from . import policy as policy_mod
 from . import runlog
 from . import safedelete
@@ -164,15 +165,26 @@ class CustodianApp:
         self.roots_summary = tk.StringVar(value="")
         self._refresh_roots_summary()
 
+        self.community_banner = tk.StringVar(value="")
+
         self._build_layout()
         self.root.after(80, self._drain)
         self.rescan()
+        self._refresh_community_banner()
 
     # ---------------------------------------------------------------- layout
 
     def _build_layout(self) -> None:
         outer = ttk.Frame(self.root, padding=10)
         outer.pack(fill=tk.BOTH, expand=True)
+
+        # Community banner: blank until either a cached or freshly-fetched
+        # public total exists (see _refresh_community_banner) -- an empty
+        # StringVar just renders as a zero-height label, no layout gap.
+        ttk.Label(
+            outer, textvariable=self.community_banner, font=("", 11, "bold"),
+            foreground="#3fb950",
+        ).pack(side=tk.TOP, anchor=tk.W, pady=(0, 6))
 
         # tk.PanedWindow rather than ttk.PanedWindow: with as few as two
         # engine installs, a fixed-height allocation for that section is
@@ -255,6 +267,26 @@ class CustodianApp:
             command=self.clean_selected,
         )
         self.clean_button.pack(side=tk.RIGHT)
+
+        credits_row = ttk.Frame(bar)
+        credits_row.pack(side=tk.TOP, fill=tk.X, pady=(6, 0))
+        ttk.Label(
+            credits_row, text=f"Unreal Custodian v{__version__}  —  made by",
+            foreground="#8a8a8a", font=("", 9),
+        ).pack(side=tk.LEFT)
+        self._add_credit_link(credits_row, "@ibrews", "https://github.com/ibrews")
+        ttk.Label(credits_row, text="&", foreground="#8a8a8a", font=("", 9)).pack(
+            side=tk.LEFT, padx=(4, 4)
+        )
+        self._add_credit_link(credits_row, "@nocxr", "https://github.com/nocxr")
+
+    @staticmethod
+    def _add_credit_link(parent: ttk.Frame, text: str, url: str) -> None:
+        link = ttk.Label(
+            parent, text=text, foreground="#58a6ff", font=("", 9, "underline"), cursor="hand2",
+        )
+        link.pack(side=tk.LEFT, padx=(4, 0))
+        link.bind("<Button-1>", lambda _e: webbrowser.open(url))
 
     # Cap how many rows the projects pane will grow to fit -- a machine with
     # hundreds of projects should scroll, not squeeze the engines pane to a
@@ -534,6 +566,8 @@ class CustodianApp:
                     self._on_clean_progress(*payload)
                 elif kind == "clean_done":
                     self._on_clean_done(*payload)
+                elif kind == "community_stat":
+                    self._update_banner_text(payload)
         except queue.Empty:
             pass
         self.root.after(80, self._drain)
@@ -852,6 +886,43 @@ class CustodianApp:
         dialog.destroy()
         self.rescan()
 
+    @staticmethod
+    def _format_global_stat(total_bytes: int, total_reports: int) -> str:
+        gb = total_bytes / 1024**3
+        return f"{gb:,.3f} GB saved globally from {total_reports:,} reported projects!"
+
+    def _update_banner_text(self, global_stats: dict | None = None) -> None:
+        """Local (this machine, always known instantly, no network) and
+        global (everyone, cached-then-fetched) are deliberately worded and
+        shown as two distinct clauses -- easy to conflate otherwise, and
+        they're very different numbers answering different questions."""
+        parts = []
+        local_total = stats_mod.load_total_reclaimed()
+        if local_total > 0:
+            parts.append(f"{human(local_total)} reclaimed on this machine")
+        stats = global_stats if global_stats is not None else stats_mod.load_cached_public_stats()
+        if stats and stats["total_bytes"] > 0:
+            parts.append(self._format_global_stat(stats["total_bytes"], stats["total_reports"]))
+        self.community_banner.set("   ·   ".join(parts))
+
+    def _refresh_community_banner(self) -> None:
+        """Checked once per launch: shows the local total plus whatever
+        global total is cached immediately (both instant, no network),
+        then refreshes the global figure from the live public tally in the
+        background. A machine with no internet right now still shows
+        whatever global number was last successfully fetched -- never a
+        blank or an error, just possibly a little stale."""
+        self._update_banner_text()
+        threading.Thread(target=self._fetch_community_stat_worker, daemon=True).start()
+
+    def _fetch_community_stat_worker(self) -> None:
+        result = share_mod.fetch_public_totals()
+        if result is not None:
+            stats_mod.save_cached_public_stats(result["total_bytes"], result["total_reports"])
+            self.results.put(("community_stat", result))
+        # None means offline/unreachable -- leave whatever's already shown
+        # (cached value, or nothing) rather than clearing it or erroring.
+
     def _refresh_roots_summary(self) -> None:
         current = settings_mod.load_settings()
         if current.scan_all_drives:
@@ -1054,22 +1125,29 @@ class CustodianApp:
         the same results queue the scan worker already uses."""
         log = runlog.RunLog()
         reclaimed, failures, skipped = 0, [], []
+        # (tree_attr, iid) for every row actually attempted (not skipped) --
+        # the row-destruction flourish plays on exactly these before the
+        # post-clean rescan wipes and repopulates the tables. Deliberately
+        # not gated on "fully succeeded" -- a partial failure still visibly
+        # changed that row, so it still gets the flourish; the completion
+        # dialog is where the precise failure detail lives.
+        attempted: list[tuple[str, str]] = []
         try:
             for report in chosen:
                 if self.cancel_requested.is_set():
                     log.write(f"CANCELLED before {_display_name(report)}")
                     break
 
-                guard_root = (
-                    report.project.root
-                    if isinstance(report, ProjectReport)
-                    else report.engine.root
-                )
+                is_project = isinstance(report, ProjectReport)
+                guard_root = report.project.root if is_project else report.engine.root
                 label = _display_name(report)
                 if safedelete.editor_is_running(guard_root):
                     skipped.append(label)
                     log.write(f"SKIP {label}: an Unreal process has this open")
                     continue
+
+                key = str(report.project.uproject) if is_project else str(report.engine.root)
+                attempted.append(("tree" if is_project else "engines", key))
 
                 for size in report.sizes:
                     if self.cancel_requested.is_set():
@@ -1085,7 +1163,7 @@ class CustodianApp:
         finally:
             log.write(f"\nReclaimed {human(reclaimed)}. {len(failures)} failure(s).")
             log_path = log.close()
-            self.results.put(("clean_done", (reclaimed, failures, skipped, log_path)))
+            self.results.put(("clean_done", (reclaimed, failures, skipped, log_path, attempted)))
 
     def _on_clean_progress(self, label: str, item_name: str, item_bytes: int) -> None:
         self.progress_label.set(f"{label} — {item_name}")
@@ -1093,15 +1171,62 @@ class CustodianApp:
         self.progress_bar["value"] = new_value
         self.progress_bytes_label.set(f"{human(int(new_value))} / {human(int(self.progress_bar['maximum']))}")
 
-    def _on_clean_done(self, reclaimed: int, failures: list, skipped: list, log_path) -> None:
+    def _on_clean_done(
+        self, reclaimed: int, failures: list, skipped: list, log_path, attempted: list
+    ) -> None:
         self.cleaning = False
         self.progress_dialog.grab_release()
         self.progress_dialog.destroy()
         self.clean_button.configure(state=tk.NORMAL)
 
         lifetime_total = stats_mod.record_reclaimed(reclaimed)
-        self._show_done_dialog(reclaimed, lifetime_total, failures, skipped, log_path)
-        self.rescan()
+        self._update_banner_text()
+
+        # Destruction flourish plays on the visible table first -- behind a
+        # modal completion dialog it would just be invisible until closed --
+        # then the completion dialog (with its own confetti), then the
+        # actual rescan that really removes/repopulates the rows.
+        def after_destruction() -> None:
+            self._show_done_dialog(reclaimed, lifetime_total, failures, skipped, log_path)
+            self.rescan()
+
+        self._animate_destruction_then(attempted, after_destruction)
+
+    _DESTRUCTION_FRAMES = (
+        ("#ffffff", "💥 Poof!"),
+        ("#ffb366", "💥 Poof!"),
+        ("#8a8a8a", "✨ cleaned"),
+    )
+    _DESTRUCTION_FRAME_MS = 140
+
+    def _animate_destruction_then(self, attempted: list[tuple[str, str]], on_done) -> None:
+        """A quick, fun flash-and-fade on the rows just cleaned, before
+        rescan() wipes and repopulates the tables -- so "gone" reads as a
+        small zap rather than the rows just silently vanishing on the next
+        scan. Falls straight through to on_done() if there's nothing to
+        animate (everything was skipped, or the rows are already gone).
+        """
+        trees = {"tree": self.tree, "engines": self.engines}
+        live = [(trees[name], iid) for name, iid in attempted if trees[name].exists(iid)]
+        if not live:
+            on_done()
+            return
+
+        def step(frame_index: int) -> None:
+            if frame_index >= len(self._DESTRUCTION_FRAMES):
+                on_done()
+                return
+            color, text = self._DESTRUCTION_FRAMES[frame_index]
+            tag = f"_destroy_{frame_index}"
+            for tree, iid in live:
+                if not tree.exists(iid):
+                    continue
+                tree.tag_configure(tag, foreground=color)
+                tree.set(iid, "status", text)
+                tree.item(iid, tags=(tag,))
+            self.root.after(self._DESTRUCTION_FRAME_MS, lambda: step(frame_index + 1))
+
+        step(0)
 
     def _show_done_dialog(
         self, reclaimed: int, lifetime_total: int, failures: list, skipped: list, log_path

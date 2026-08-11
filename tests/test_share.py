@@ -67,3 +67,55 @@ def test_report_anonymously_never_raises_past_its_boundary(monkeypatch) -> None:
     monkeypatch.setattr("urllib.request.urlopen", raise_it)
     result = share.report_anonymously(1024)  # must not raise
     assert result is False
+
+
+class _FakeGetResponse:
+    def __init__(self, status: int, body: bytes):
+        self.status = status
+        self._body = body
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_fetch_public_totals_parses_a_good_response(monkeypatch) -> None:
+    body = b'{"ok": true, "totalBytes": 555, "totalReports": 3}'
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _FakeGetResponse(200, body))
+    assert share.fetch_public_totals() == {"total_bytes": 555, "total_reports": 3}
+
+
+def test_fetch_public_totals_returns_none_on_network_error(monkeypatch) -> None:
+    def raise_it(*a, **k):
+        raise urllib.error.URLError("no network")
+
+    monkeypatch.setattr("urllib.request.urlopen", raise_it)
+    assert share.fetch_public_totals() is None  # must not raise, no internet is expected
+
+
+def test_fetch_public_totals_returns_none_on_non_2xx(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "urllib.request.urlopen", lambda *a, **k: _FakeGetResponse(500, b"{}")
+    )
+    assert share.fetch_public_totals() is None
+
+
+def test_fetch_public_totals_returns_none_on_malformed_body(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *a, **k: _FakeGetResponse(200, b'{"ok": true, "totalBytes": "not a number"}'),
+    )
+    assert share.fetch_public_totals() is None
+
+
+def test_fetch_public_totals_never_raises_past_its_boundary(monkeypatch) -> None:
+    def raise_it(*a, **k):
+        raise OSError("dns failure")
+
+    monkeypatch.setattr("urllib.request.urlopen", raise_it)
+    assert share.fetch_public_totals() is None  # must not raise

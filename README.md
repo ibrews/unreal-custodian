@@ -153,6 +153,9 @@ Sortable table of every project with its reclaimable size, last-touched date, en
 - **Cleaning shows real progress**, not a frozen window. A real run is one to five minutes; it runs on a background thread with a progress bar tracking bytes reclaimed, a "Cancel remaining" button, and a live label naming whatever it's working on right now.
 - **Every clean run writes a full log** to `~/.local/state/unreal-custodian/logs/` (`%LOCALAPPDATA%\unreal-custodian\logs\` on Windows) — every item, every failure, never truncated. The completion dialog only shows the first 8 failures inline; the log has all of them, and its path is in that same dialog.
 - **The completion dialog tracks a lifetime total** on that machine (`~/.local/state/unreal-custodian/stats.json`) and, on a real win, throws a small confetti flourish and offers to share it — pre-filled X/LinkedIn posts (you still have to hit post yourself), or a one-click, fully anonymous "count this in the public tally" report. See [Sharing what you reclaimed](#sharing-what-you-reclaimed) below.
+- **A banner at the top of the window** shows both the local lifetime total and the live global tally — checked once per launch, cached locally so it still shows something with no internet.
+- **Rows that just got cleaned flash and fade** ("💥 Poof!" → "✨ cleaned") for a moment before the post-clean rescan replaces them with their real new state — so a successful clean visibly *does* something to those rows instead of them just vanishing on the next scan.
+- **The window footer names the version and who built it** (`@ibrews` & `@nocxr`, both clickable) — also available from the CLI via `custodian --version`.
 
 **The GUI needs a Python built with `tkinter` *and Tk 8.6 or newer*.** The CLI has no such requirement and runs on the Python that ships inside Unreal itself (`Engine/Binaries/ThirdParty/Python3/`) — that bundled interpreter has no `tkinter` at all, so it cannot run the GUI either way.
 
@@ -169,9 +172,12 @@ That installs Tk 9 alongside Python 3.12, and the blank-window bug does not repr
 
 ## Sharing what you reclaimed
 
-Every real `--apply` run (CLI or GUI) adds to a lifetime total kept locally on that machine (`~/.local/state/unreal-custodian/stats.json`) — nothing is sent anywhere just from running the tool.
+Two different numbers, kept deliberately distinct everywhere they're shown so they're never confused for each other:
 
-Reporting a number to the public "reclaimed since launch" tally at [alexcoulombepresents.com/repos/unreal-custodian](https://www.alexcoulombepresents.com/repos/unreal-custodian) is opt-in, every time:
+- **Local** — every real `--apply` run (CLI or GUI) adds to a lifetime total kept on that machine (`~/.local/state/unreal-custodian/stats.json`, `%LOCALAPPDATA%\unreal-custodian\stats.json` on Windows). Nothing is sent anywhere just from running the tool. This file lives outside the app entirely, so it survives updating to a new version — replacing the `.app`/`.exe` never touches it.
+- **Global** — the public "reclaimed since launch" tally across everyone who's opted in, shown at [alexcoulombepresents.com/repos/unreal-custodian](https://www.alexcoulombepresents.com/repos/unreal-custodian) and, in the GUI, as a banner at the top of the window (`N.NNN GB saved globally from N reported projects!`) that's checked once per launch — cached locally too, so a launch with no internet still shows the last-known number instead of nothing.
+
+Reporting a number to the global tally is opt-in, every time:
 
 - **GUI:** the completion dialog has a "Also count this in our public tally (anonymous)" button — nothing is sent until you click it.
 - **CLI:** pass `--report-savings` to `clean --apply`. Omit it (the default) and nothing leaves the machine.
