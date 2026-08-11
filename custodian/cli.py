@@ -327,6 +327,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
 
     reclaimed = 0
     failures = 0
+    attempted_count = 0
     for report in planned:
         name = _item_name(report)
         root = _item_root(report)
@@ -334,6 +335,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
             emit(f"  SKIP {name}: an Unreal process has this open")
             continue
 
+        attempted_count += 1
         emit(f"  {name}  ({human(report.reclaimable_bytes)})")
         for size in report.sizes:
             rel = size.path.relative_to(root).as_posix()
@@ -371,7 +373,7 @@ def cmd_clean(args: argparse.Namespace) -> int:
         if not args.quiet:
             print(f"Lifetime total on this machine: {human(lifetime_total)}.")
         if args.report_savings:
-            ok = share_mod.report_anonymously(reclaimed)
+            ok = share_mod.report_anonymously(reclaimed, attempted_count)
             if not args.quiet:
                 print(
                     "Reported to the public tally -- thanks!"

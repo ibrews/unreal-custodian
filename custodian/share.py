@@ -60,19 +60,25 @@ def fetch_public_totals(timeout: float = 5.0) -> dict | None:
     return {"total_bytes": int(total_bytes), "total_reports": int(total_reports)}
 
 
-def report_anonymously(bytes_reclaimed: int, timeout: float = 5.0) -> bool:
-    """POST an anonymous byte count to the public tally.
+def report_anonymously(bytes_reclaimed: int, project_count: int = 1, timeout: float = 5.0) -> bool:
+    """POST an anonymous byte count (and how many projects/engines it came
+    from) to the public tally.
 
     Returns whether it succeeded. No identifying information is sent or
-    logged -- just the number. Callers should treat a False return as
+    logged -- just the numbers. Callers should treat a False return as
     "quietly skip it," never as an error worth surfacing to the user;
     reporting a household disk-cleanup stat is not worth interrupting
     anyone's day over a flaky network.
+
+    project_count defaults to 1 for a caller that doesn't track it --
+    still an honest report of one clean run, same as before this existed.
     """
     if bytes_reclaimed <= 0:
         return False
     try:
-        payload = json.dumps({"bytes": bytes_reclaimed}).encode("utf-8")
+        payload = json.dumps(
+            {"bytes": bytes_reclaimed, "projectCount": max(1, project_count)}
+        ).encode("utf-8")
         req = urllib.request.Request(
             REPORT_URL,
             data=payload,

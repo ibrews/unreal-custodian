@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import urllib.error
 from pathlib import Path
@@ -56,6 +57,53 @@ def test_report_anonymously_fails_closed_on_network_error(monkeypatch) -> None:
 
     monkeypatch.setattr("urllib.request.urlopen", raise_it)
     assert share.report_anonymously(1024) is False
+
+
+def test_report_anonymously_includes_project_count_in_the_payload(monkeypatch) -> None:
+    """Real gap this closes: 'reported projects' on the public tally used to
+    always mean +1 per API call, so a single batch clean of 12 projects
+    showed up as 1 report, not 12."""
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, *a, **k):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    share.report_anonymously(36_507_222_016, project_count=12)
+    assert captured["body"] == {"bytes": 36_507_222_016, "projectCount": 12}
+
+
+def test_report_anonymously_defaults_project_count_to_one(monkeypatch) -> None:
+    """A caller that doesn't track project count (or the default arg) still
+    sends an honest, explicit projectCount rather than omitting it."""
+    captured = {}
+
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, *a, **k):
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    share.report_anonymously(1024)
+    assert captured["body"]["projectCount"] == 1
 
 
 def test_report_anonymously_never_raises_past_its_boundary(monkeypatch) -> None:

@@ -1187,7 +1187,9 @@ class CustodianApp:
         # then the completion dialog (with its own confetti), then the
         # actual rescan that really removes/repopulates the rows.
         def after_destruction() -> None:
-            self._show_done_dialog(reclaimed, lifetime_total, failures, skipped, log_path)
+            self._show_done_dialog(
+                reclaimed, lifetime_total, failures, skipped, log_path, len(attempted)
+            )
             self.rescan()
 
         self._animate_destruction_then(attempted, after_destruction)
@@ -1229,7 +1231,8 @@ class CustodianApp:
         step(0)
 
     def _show_done_dialog(
-        self, reclaimed: int, lifetime_total: int, failures: list, skipped: list, log_path
+        self, reclaimed: int, lifetime_total: int, failures: list, skipped: list, log_path,
+        project_count: int = 1,
     ) -> None:
         """Replaces the old plain messagebox: same failure/skip/log detail,
         plus a confetti flourish and a way to share the number -- on social,
@@ -1316,7 +1319,7 @@ class CustodianApp:
                 report_status.set("Sending…")
 
                 def worker() -> None:
-                    ok = share_mod.report_anonymously(reclaimed)
+                    ok = share_mod.report_anonymously(reclaimed, project_count)
                     dialog.after(0, lambda: on_reported(ok))
 
                 def on_reported(ok: bool) -> None:
