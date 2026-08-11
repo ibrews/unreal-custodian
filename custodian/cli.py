@@ -22,6 +22,7 @@ from . import share as share_mod
 from . import stats as stats_mod
 from .discovery import EVERYTHING_DOWNLOAD_URL, find_engine_installs, find_projects, index_available
 from .sizing import (
+    SCAN_WORKERS,
     EngineReport,
     ProjectReport,
     free_bytes,
@@ -64,7 +65,7 @@ def _scan_all(
         if projects:
             print("Measuring... (directory sizing is the slow part)", flush=True)
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as pool:
         reports = list(pool.map(lambda p: scan_project(p, base_policy), projects))
     reports.sort(key=lambda r: r.reclaimable_bytes, reverse=True)
     return reports

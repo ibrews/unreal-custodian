@@ -16,6 +16,13 @@ from . import freshness as freshness_mod
 from . import policy as policy_mod
 from .discovery import EngineInstall, Project
 
+# Sizing hundreds of projects one at a time -- each an os.walk over a
+# directory tree that can hold tens of thousands of small build-cache files
+# -- is the single slowest part of a scan. Both the CLI and GUI size
+# projects across this many threads in parallel; shared here so they can't
+# quietly drift to different numbers.
+SCAN_WORKERS = 8
+
 
 @dataclass(frozen=True)
 class TargetSize:

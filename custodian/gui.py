@@ -29,6 +29,7 @@ import sys
 import threading
 import tkinter as tk
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -40,7 +41,7 @@ from . import settings as settings_mod
 from . import share as share_mod
 from . import stats as stats_mod
 from .discovery import EVERYTHING_DOWNLOAD_URL, find_engine_installs, find_projects, index_available
-from .sizing import EngineReport, ProjectReport, free_bytes, human, scan_engine, scan_project
+from .sizing import SCAN_WORKERS, EngineReport, ProjectReport, free_bytes, human, scan_engine, scan_project
 
 
 def _display_name(report) -> str:
@@ -565,10 +566,23 @@ class CustodianApp:
                 self.results.put(("engine", scan_engine(engine, engine_keys)))
             projects = find_projects(engine_installs=engines)
             self.results.put(("count", len(projects)))
-            for project in projects:
-                # A project's own .ueclean.json still layers over this and
-                # wins -- base_policy only supplies what the file doesn't say.
-                self.results.put(("project", scan_project(project, base_policy)))
+            # Sizing each project is an os.walk over a directory tree that
+            # can hold tens of thousands of build-cache files -- sizing them
+            # one at a time here used to mean the CLI (which already
+            # parallelizes this exact loop) finished in a fraction of the
+            # GUI's time on the same machine. as_completed rather than
+            # map(): rows should appear as each project actually finishes,
+            # not held back for the slowest one in submission order.
+            with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as pool:
+                futures = [
+                    # A project's own .ueclean.json still layers over
+                    # base_policy and wins -- base_policy only supplies what
+                    # the file doesn't say.
+                    pool.submit(scan_project, project, base_policy)
+                    for project in projects
+                ]
+                for future in as_completed(futures):
+                    self.results.put(("project", future.result()))
         except Exception as exc:  # surfaced in the status bar, never silent
             self.results.put(("error", str(exc)))
         finally:
