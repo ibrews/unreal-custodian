@@ -20,7 +20,7 @@ from . import safedelete
 from . import settings as settings_mod
 from . import share as share_mod
 from . import stats as stats_mod
-from .discovery import find_engine_installs, find_projects, index_available
+from .discovery import EVERYTHING_DOWNLOAD_URL, find_engine_installs, find_projects, index_available
 from .sizing import (
     EngineReport,
     ProjectReport,
@@ -50,7 +50,7 @@ def _scan_all(
             "No file index available -- falling back to a filesystem walk, which is "
             "much slower.\n"
             + (
-                "Install Everything (https://www.voidtools.com/downloads/#cli) and put "
+                f"Install Everything ({EVERYTHING_DOWNLOAD_URL}) and put "
                 "es.exe on your PATH.\n"
                 if os.name == "nt"
                 else "Spotlight indexing appears to be off for this volume.\n"

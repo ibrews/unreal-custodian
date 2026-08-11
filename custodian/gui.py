@@ -39,7 +39,7 @@ from . import safedelete
 from . import settings as settings_mod
 from . import share as share_mod
 from . import stats as stats_mod
-from .discovery import find_engine_installs, find_projects
+from .discovery import EVERYTHING_DOWNLOAD_URL, find_engine_installs, find_projects, index_available
 from .sizing import EngineReport, ProjectReport, free_bytes, human, scan_engine, scan_project
 
 
@@ -173,25 +173,37 @@ class CustodianApp:
         self.update_info: dict | None = None
         self.update_available_text = tk.StringVar(value="")
 
+        # Built lazily by _show_everything_notice -- most launches (macOS
+        # entirely, and Windows with Everything already installed) never
+        # create this frame at all.
+        self.everything_notice_frame: ttk.Frame | None = None
+        self.hide_everything_notice_var = tk.BooleanVar(value=False)
+
         self._build_layout()
         self.root.after(80, self._drain)
         self.rescan()
         self._refresh_community_banner()
         self._check_for_update()
+        self._check_everything_index()
 
     # ---------------------------------------------------------------- layout
 
     def _build_layout(self) -> None:
         outer = ttk.Frame(self.root, padding=10)
         outer.pack(fill=tk.BOTH, expand=True)
+        # Stashed so a launch-time notice (see _show_everything_notice) can
+        # pack itself in above everything else here without _build_layout
+        # needing to know about it ahead of time.
+        self.outer = outer
 
         # Community banner: blank until either a cached or freshly-fetched
         # public total exists (see _refresh_community_banner) -- an empty
         # StringVar just renders as a zero-height label, no layout gap.
-        ttk.Label(
+        self.community_banner_label = ttk.Label(
             outer, textvariable=self.community_banner, font=("", 11, "bold"),
             foreground="#3fb950",
-        ).pack(side=tk.TOP, anchor=tk.W, pady=(0, 6))
+        )
+        self.community_banner_label.pack(side=tk.TOP, anchor=tk.W, pady=(0, 6))
 
         # tk.PanedWindow rather than ttk.PanedWindow: with as few as two
         # engine installs, a fixed-height allocation for that section is
@@ -591,6 +603,8 @@ class CustodianApp:
                     self._update_banner_text(payload)
                 elif kind == "update_available":
                     self._on_update_available(payload)
+                elif kind == "everything_notice":
+                    self._show_everything_notice()
         except queue.Empty:
             pass
         self.root.after(80, self._drain)
@@ -962,6 +976,65 @@ class CustodianApp:
     def _on_update_available(self, release: dict) -> None:
         self.update_info = release
         self.update_available_text.set(f"Update available: v{release['version']} →")
+
+    def _check_everything_index(self) -> None:
+        """Windows-only: without Everything's CLI (es.exe) on PATH, discovery
+        falls back to a filesystem walk that can take minutes instead of
+        under a second. The CLI has warned about this since it existed
+        (cli.py); the GUI never did, and multiple real users have hit this
+        exact wall with no idea why the app was slow. Checked once per
+        launch, same fail-silent discipline as the other launch-time
+        checks -- and skipped entirely once dismissed for good."""
+        if os.name != "nt" or settings_mod.load_settings().hide_everything_notice:
+            return
+        threading.Thread(target=self._check_everything_index_worker, daemon=True).start()
+
+    def _check_everything_index_worker(self) -> None:
+        if not index_available():
+            self.results.put(("everything_notice", None))
+        # Index is available: nothing to say, no message queued.
+
+    def _show_everything_notice(self) -> None:
+        if self.everything_notice_frame is not None:
+            return  # already showing -- _drain can only reach here once anyway
+        frame = ttk.Frame(self.outer, padding=8, relief=tk.GROOVE, borderwidth=1)
+        ttk.Label(
+            frame,
+            text=(
+                "No fast file index found -- Custodian is using a slower filesystem "
+                "walk instead of Everything. Installing Everything makes discovery "
+                "near-instant."
+            ),
+            wraplength=640, justify=tk.LEFT, foreground="#f0883e",
+        ).pack(side=tk.TOP, anchor=tk.W)
+
+        row = ttk.Frame(frame)
+        row.pack(side=tk.TOP, fill=tk.X, pady=(6, 0))
+        link = ttk.Label(
+            row, text="Get Everything →", foreground="#58a6ff",
+            font=("", 9, "underline"), cursor="hand2",
+        )
+        link.pack(side=tk.LEFT)
+        link.bind("<Button-1>", lambda _e: webbrowser.open(EVERYTHING_DOWNLOAD_URL))
+        ttk.Checkbutton(
+            row, text="Don't show this again", variable=self.hide_everything_notice_var,
+        ).pack(side=tk.LEFT, padx=(16, 0))
+        ttk.Button(row, text="Dismiss", command=self._dismiss_everything_notice).pack(side=tk.RIGHT)
+
+        # before= keeps it above the community banner regardless of which
+        # finished loading first -- this is the more actionable of the two,
+        # it belongs on top.
+        frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 6), before=self.community_banner_label)
+        self.everything_notice_frame = frame
+
+    def _dismiss_everything_notice(self) -> None:
+        if self.hide_everything_notice_var.get():
+            settings_mod.save_settings(
+                settings_mod.load_settings().with_everything_notice_hidden()
+            )
+        if self.everything_notice_frame is not None:
+            self.everything_notice_frame.destroy()
+            self.everything_notice_frame = None
 
     def _refresh_roots_summary(self) -> None:
         current = settings_mod.load_settings()

@@ -66,3 +66,23 @@ def test_load_with_a_corrupt_settings_file_is_not_fatal(tmp_path: Path, monkeypa
     path.write_text("{not valid json", encoding="utf-8")
     monkeypatch.setattr(settings_mod, "settings_path", lambda: path)
     assert settings_mod.load_settings() == settings_mod.Settings()
+
+
+def test_default_shows_the_everything_notice() -> None:
+    assert settings_mod.Settings().hide_everything_notice is False
+
+
+def test_with_everything_notice_hidden_persists_across_save_and_load(
+    tmp_path: Path, monkeypatch
+) -> None:
+    path = tmp_path / "settings.json"
+    monkeypatch.setattr(settings_mod, "settings_path", lambda: path)
+
+    settings_mod.save_settings(settings_mod.Settings().with_everything_notice_hidden())
+    assert settings_mod.load_settings().hide_everything_notice is True
+
+
+def test_with_everything_notice_hidden_does_not_touch_scan_roots() -> None:
+    s = settings_mod.Settings().with_included_roots(["D:/Games"]).with_everything_notice_hidden()
+    assert s.hide_everything_notice is True
+    assert s.resolved_roots() == [Path("D:/Games")]

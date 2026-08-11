@@ -30,6 +30,10 @@ class Settings:
     # Only consulted when scan_all_drives is False. Stored as strings (JSON
     # has no Path type); resolved_roots() below is what callers should use.
     included_roots: tuple[str, ...] = ()
+    # "Don't show this again" for the GUI's Windows-only "install Everything"
+    # notice -- set once the user dismisses it with the checkbox checked.
+    # Persisted so it stays dismissed across restarts, not just this session.
+    hide_everything_notice: bool = False
 
     def resolved_roots(self) -> list[Path] | None:
         """None means "no restriction, search everywhere" -- the historical
@@ -54,6 +58,9 @@ class Settings:
             self, scan_all_drives=False, included_roots=tuple(str(r) for r in roots)
         )
 
+    def with_everything_notice_hidden(self) -> "Settings":
+        return replace(self, hide_everything_notice=True)
+
 
 def load_settings() -> Settings:
     path = settings_path()
@@ -64,6 +71,7 @@ def load_settings() -> Settings:
     return Settings(
         scan_all_drives=bool(data.get("scan_all_drives", True)),
         included_roots=tuple(data.get("included_roots", ())),
+        hide_everything_notice=bool(data.get("hide_everything_notice", False)),
     )
 
 
@@ -73,5 +81,6 @@ def save_settings(settings: Settings) -> None:
     payload = {
         "scan_all_drives": settings.scan_all_drives,
         "included_roots": list(settings.included_roots),
+        "hide_everything_notice": settings.hide_everything_notice,
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

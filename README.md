@@ -39,6 +39,8 @@ A second project, `ThirdPersonClass`, where the caches dominated — 8.7 GB down
 - macOS: unzip and open — signed and notarized, no Gatekeeper warning
 - Windows: unsigned — SmartScreen shows an "unknown publisher" click-through on first run
 
+**Windows: install [Everything](https://www.voidtools.com/downloads/#cli) first, standalone app or not.** Discovery is index-first — on macOS that's Spotlight, already there, nothing to install. On Windows it's [Everything](https://www.voidtools.com/downloads/#cli)'s `es.exe`, and it is *not* installed by default. Without it on your `PATH`, Custodian silently falls back to a filesystem walk that can take minutes instead of well under a second — this is the single most common "why is this so slow" report. The GUI will now notice and tell you (once, dismissibly), but installing it up front skips that entirely.
+
 Or run from source — no install needed for the CLI, and this is the only option if you want the latest unreleased fixes:
 
 ```bash
@@ -48,8 +50,6 @@ python3 -m custodian.cli report
 ```
 
 Requires Python 3.9+. No dependencies for the CLI.
-
-On Windows, install [Everything](https://www.voidtools.com/downloads/#cli) and put `es.exe` on your `PATH` (or beside this README) for instant project discovery. On macOS, Spotlight is used and there is nothing to install. Without either, a slower filesystem walk is used as a fallback.
 
 By default every drive gets searched. To restrict that — a slow or unreliable network/backup drive that happens to be mounted, or just wanting only the drive(s) Unreal projects actually live on considered — use **Search Settings…** in the GUI, or on the CLI:
 
@@ -157,6 +157,7 @@ Sortable table of every project with its reclaimable size, last-touched date, en
 - **Rows that just got cleaned flash and fade** ("💥 Poof!" → "✨ cleaned") for a moment before the post-clean rescan replaces them with their real new state — so a successful clean visibly *does* something to those rows instead of them just vanishing on the next scan.
 - **The window footer names the version and who built it** (`@ibrews` & `@nocxr`, both clickable) — also available from the CLI via `custodian --version`.
 - **Checks GitHub for a newer release once per launch.** If one exists, an "Update available: vX.Y.Z →" link appears next to the version in the footer — click it to open the release page. Silent and non-blocking if you're already current or offline; nothing is downloaded or installed automatically.
+- **On Windows, notices if Everything isn't installed** and shows a dismissible notice with a link to it — the single biggest reason discovery is slow for some people. Check "Don't show this again" to silence it for good; otherwise it reappears each launch until Everything's on your `PATH`.
 
 **The GUI needs a Python built with `tkinter` *and Tk 8.6 or newer*.** The CLI has no such requirement and runs on the Python that ships inside Unreal itself (`Engine/Binaries/ThirdParty/Python3/`) — that bundled interpreter has no `tkinter` at all, so it cannot run the GUI either way.
 

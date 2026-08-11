@@ -18,6 +18,10 @@ from pathlib import Path
 
 from . import settings as settings_mod
 
+# Shared by the CLI's startup warning and the GUI's dismissible notice --
+# one URL, not two copies that can drift apart.
+EVERYTHING_DOWNLOAD_URL = "https://www.voidtools.com/downloads/#cli"
+
 # Directory names that never contain a project we care about, and that are
 # expensive to descend into during the fallback walk.
 _PRUNE_DIRS = {
