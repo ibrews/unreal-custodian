@@ -156,6 +156,7 @@ Sortable table of every project with its reclaimable size, last-touched date, en
 - **A banner at the top of the window** shows both the local lifetime total and the live global tally — checked once per launch, cached locally so it still shows something with no internet.
 - **Rows that just got cleaned flash and fade** ("💥 Poof!" → "✨ cleaned") for a moment before the post-clean rescan replaces them with their real new state — so a successful clean visibly *does* something to those rows instead of them just vanishing on the next scan.
 - **The window footer names the version and who built it** (`@ibrews` & `@nocxr`, both clickable) — also available from the CLI via `custodian --version`.
+- **Checks GitHub for a newer release once per launch.** If one exists, an "Update available: vX.Y.Z →" link appears next to the version in the footer — click it to open the release page. Silent and non-blocking if you're already current or offline; nothing is downloaded or installed automatically.
 
 **The GUI needs a Python built with `tkinter` *and Tk 8.6 or newer*.** The CLI has no such requirement and runs on the Python that ships inside Unreal itself (`Engine/Binaries/ThirdParty/Python3/`) — that bundled interpreter has no `tkinter` at all, so it cannot run the GUI either way.
 

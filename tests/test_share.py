@@ -167,3 +167,67 @@ def test_fetch_public_totals_never_raises_past_its_boundary(monkeypatch) -> None
 
     monkeypatch.setattr("urllib.request.urlopen", raise_it)
     assert share.fetch_public_totals() is None  # must not raise
+
+
+@pytest.mark.parametrize(
+    "candidate,current,expected",
+    [
+        ("0.3.0", "0.2.0", True),
+        ("0.2.0", "0.3.0", False),
+        ("0.3.0", "0.3.0", False),
+        ("0.10.0", "0.9.0", True),  # numeric, not lexicographic ("0.10" < "0.9" as strings)
+        ("1.0.0", "0.99.99", True),
+        ("0.3.0-beta", "0.2.0", True),  # non-numeric suffix ignored, "0.3.0" prefix still compares
+    ],
+)
+def test_is_newer_version(candidate, current, expected) -> None:
+    assert share.is_newer_version(candidate, current) is expected
+
+
+def test_fetch_latest_release_parses_a_good_response(monkeypatch) -> None:
+    body = json.dumps(
+        {"tag_name": "v0.3.0", "html_url": "https://github.com/ibrews/unreal-custodian/releases/tag/v0.3.0"}
+    ).encode("utf-8")
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _FakeGetResponse(200, body))
+    assert share.fetch_latest_release() == {
+        "version": "0.3.0",
+        "url": "https://github.com/ibrews/unreal-custodian/releases/tag/v0.3.0",
+    }
+
+
+def test_fetch_latest_release_sends_a_user_agent(monkeypatch) -> None:
+    """GitHub's REST API 403s anonymous requests with no User-Agent header."""
+    captured = {}
+
+    def fake_urlopen(req, *a, **k):
+        captured["headers"] = req.headers
+        body = json.dumps({"tag_name": "v0.3.0", "html_url": "https://x"}).encode("utf-8")
+        return _FakeGetResponse(200, body)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    share.fetch_latest_release()
+    assert "User-agent" in captured["headers"]  # urllib.request title-cases header keys
+
+
+def test_fetch_latest_release_returns_none_on_network_error(monkeypatch) -> None:
+    def raise_it(*a, **k):
+        raise urllib.error.URLError("no network")
+
+    monkeypatch.setattr("urllib.request.urlopen", raise_it)
+    assert share.fetch_latest_release() is None
+
+
+def test_fetch_latest_release_returns_none_on_malformed_body(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "urllib.request.urlopen",
+        lambda *a, **k: _FakeGetResponse(200, b'{"tag_name": 12345}'),
+    )
+    assert share.fetch_latest_release() is None
+
+
+def test_fetch_latest_release_never_raises_past_its_boundary(monkeypatch) -> None:
+    def raise_it(*a, **k):
+        raise OSError("dns failure")
+
+    monkeypatch.setattr("urllib.request.urlopen", raise_it)
+    assert share.fetch_latest_release() is None  # must not raise

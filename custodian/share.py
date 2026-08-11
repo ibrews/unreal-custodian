@@ -17,6 +17,7 @@ import urllib.request
 
 REPORT_URL = "https://www.alexcoulombepresents.com/api/unreal-custodian/space-saved"
 REPO_URL = "https://github.com/ibrews/unreal-custodian"
+LATEST_RELEASE_API_URL = "https://api.github.com/repos/ibrews/unreal-custodian/releases/latest"
 
 
 def share_text(human_amount: str) -> str:
@@ -58,6 +59,52 @@ def fetch_public_totals(timeout: float = 5.0) -> dict | None:
     if not isinstance(total_bytes, (int, float)) or not isinstance(total_reports, (int, float)):
         return None
     return {"total_bytes": int(total_bytes), "total_reports": int(total_reports)}
+
+
+def _parse_version(v: str) -> tuple[int, ...]:
+    """"0.3.0" -> (0, 3, 0). Stops at the first non-numeric part rather than
+    raising -- a release tag with a suffix ("0.3.0-beta") still compares
+    sanely on its numeric prefix instead of blowing up the whole check."""
+    parts: list[int] = []
+    for p in v.split("."):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            break
+    return tuple(parts) if parts else (0,)
+
+
+def is_newer_version(candidate: str, current: str) -> bool:
+    """Numeric tuple comparison, not string comparison -- "0.10.0" must
+    sort after "0.9.0", which plain string comparison gets backwards."""
+    return _parse_version(candidate) > _parse_version(current)
+
+
+def fetch_latest_release(timeout: float = 5.0) -> dict | None:
+    """GET the latest GitHub release for this repo.
+
+    Returns {"version": "0.3.0", "url": "https://github.com/.../releases/tag/v0.3.0"},
+    or None on any failure (no internet, GitHub rate limit, unexpected
+    response shape) -- checked once per launch, so like the other network
+    calls here it has to fail fast and quiet, never interrupt startup.
+    """
+    try:
+        req = urllib.request.Request(
+            LATEST_RELEASE_API_URL,
+            # GitHub's REST API 403s anonymous requests with no User-Agent.
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "unreal-custodian"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            if not (200 <= resp.status < 300):
+                return None
+            data = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, TimeoutError, ValueError):
+        return None
+    tag = data.get("tag_name")
+    url = data.get("html_url")
+    if not isinstance(tag, str) or not isinstance(url, str):
+        return None
+    return {"version": tag.lstrip("v"), "url": url}
 
 
 def report_anonymously(bytes_reclaimed: int, project_count: int = 1, timeout: float = 5.0) -> bool:

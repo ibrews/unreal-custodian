@@ -167,10 +167,17 @@ class CustodianApp:
 
         self.community_banner = tk.StringVar(value="")
 
+        # Populated only if a newer GitHub release is found -- stays None
+        # (and the label stays blank/unclickable) for the whole session on
+        # a machine that's already current or offline at launch.
+        self.update_info: dict | None = None
+        self.update_available_text = tk.StringVar(value="")
+
         self._build_layout()
         self.root.after(80, self._drain)
         self.rescan()
         self._refresh_community_banner()
+        self._check_for_update()
 
     # ---------------------------------------------------------------- layout
 
@@ -279,6 +286,20 @@ class CustodianApp:
             side=tk.LEFT, padx=(4, 4)
         )
         self._add_credit_link(credits_row, "@nocxr", "https://github.com/nocxr")
+
+        # Blank until _check_for_update finds a newer release (see
+        # __init__) -- an empty StringVar renders as a zero-width label, so
+        # this costs no layout space on the common "already current" path.
+        self.update_label = ttk.Label(
+            credits_row, textvariable=self.update_available_text,
+            foreground="#f0883e", font=("", 9, "bold"), cursor="hand2",
+        )
+        self.update_label.pack(side=tk.RIGHT)
+        self.update_label.bind("<Button-1>", self._open_update_url)
+
+    def _open_update_url(self, _event=None) -> None:
+        if self.update_info is not None:
+            webbrowser.open(self.update_info["url"])
 
     @staticmethod
     def _add_credit_link(parent: ttk.Frame, text: str, url: str) -> None:
@@ -568,6 +589,8 @@ class CustodianApp:
                     self._on_clean_done(*payload)
                 elif kind == "community_stat":
                     self._update_banner_text(payload)
+                elif kind == "update_available":
+                    self._on_update_available(payload)
         except queue.Empty:
             pass
         self.root.after(80, self._drain)
@@ -922,6 +945,23 @@ class CustodianApp:
             self.results.put(("community_stat", result))
         # None means offline/unreachable -- leave whatever's already shown
         # (cached value, or nothing) rather than clearing it or erroring.
+
+    def _check_for_update(self) -> None:
+        """Checked once per launch, same fail-silent-offline discipline as
+        _refresh_community_banner: a machine with no internet, or one
+        that's already current, just never shows the label -- no error, no
+        interruption."""
+        threading.Thread(target=self._check_for_update_worker, daemon=True).start()
+
+    def _check_for_update_worker(self) -> None:
+        release = share_mod.fetch_latest_release()
+        if release is not None and share_mod.is_newer_version(release["version"], __version__):
+            self.results.put(("update_available", release))
+        # None, or not actually newer: leave the label blank -- nothing to say.
+
+    def _on_update_available(self, release: dict) -> None:
+        self.update_info = release
+        self.update_available_text.set(f"Update available: v{release['version']} →")
 
     def _refresh_roots_summary(self) -> None:
         current = settings_mod.load_settings()
