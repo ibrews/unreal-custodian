@@ -23,10 +23,12 @@ from __future__ import annotations
 import json
 import os
 import queue
+import random
 import subprocess
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -34,6 +36,8 @@ from . import policy as policy_mod
 from . import runlog
 from . import safedelete
 from . import settings as settings_mod
+from . import share as share_mod
+from . import stats as stats_mod
 from .discovery import find_engine_installs, find_projects
 from .sizing import EngineReport, ProjectReport, free_bytes, human, scan_engine, scan_project
 
@@ -60,6 +64,56 @@ def _set_window_icon(root: tk.Tk) -> None:
         root._icon_ref = photo  # PhotoImage must outlive the call or Tk drops the icon
     except (tk.TclError, OSError):
         pass
+
+
+_CONFETTI_COLORS = ("#f85149", "#3fb950", "#58a6ff", "#d29922", "#bc8cff", "#ff7b72")
+_CONFETTI_GRAVITY = 260.0  # px/sec^2
+_CONFETTI_FRAME_MS = 16  # ~60fps; a fixed dt is plenty smooth for a two-second flourish
+
+
+class _ConfettiBurst:
+    """A small burst of falling rectangles on a Canvas -- pure Tk, no deps.
+
+    Physically negligible (rectangles under simple gravity, no real time
+    tracking), which is exactly right for a two-second celebratory flourish:
+    correctness doesn't matter here, only that it reads as "confetti" and
+    never leaves stray pieces on screen once it's done.
+    """
+
+    def __init__(self, canvas: tk.Canvas, width: int, height: int, count: int = 70) -> None:
+        self.canvas = canvas
+        self.width = width
+        self.height = height
+        self.pieces = []
+        for _ in range(count):
+            x = random.uniform(0, width)
+            y = random.uniform(-height, -10)  # start above the canvas, staggered
+            size = random.uniform(4, 9)
+            item = canvas.create_rectangle(
+                x, y, x + size, y + size, fill=random.choice(_CONFETTI_COLORS), outline=""
+            )
+            self.pieces.append(
+                {
+                    "item": item,
+                    "x": x,
+                    "y": y,
+                    "vx": random.uniform(-40, 40),
+                    "vy": random.uniform(60, 140),
+                    "size": size,
+                }
+            )
+
+    def step(self, dt: float) -> bool:
+        """Advance one frame. Returns True while any piece is still visible."""
+        any_visible = False
+        for p in self.pieces:
+            p["vy"] += _CONFETTI_GRAVITY * dt
+            p["x"] += p["vx"] * dt
+            p["y"] += p["vy"] * dt
+            self.canvas.coords(p["item"], p["x"], p["y"], p["x"] + p["size"], p["y"] + p["size"])
+            if p["y"] < self.height + 20:
+                any_visible = True
+        return any_visible
 
 
 class CustodianApp:
@@ -1045,14 +1099,121 @@ class CustodianApp:
         self.progress_dialog.destroy()
         self.clean_button.configure(state=tk.NORMAL)
 
-        message = f"Reclaimed {human(reclaimed)}."
-        if skipped:
-            message += "\n\nSkipped (Unreal is open there): " + ", ".join(skipped)
-        if failures:
-            message += "\n\nFailed (first 8 of {}):\n".format(len(failures)) + "\n".join(failures[:8])
-        message += f"\n\nFull log: {log_path}"
-        messagebox.showinfo("Done", message)
+        lifetime_total = stats_mod.record_reclaimed(reclaimed)
+        self._show_done_dialog(reclaimed, lifetime_total, failures, skipped, log_path)
         self.rescan()
+
+    def _show_done_dialog(
+        self, reclaimed: int, lifetime_total: int, failures: list, skipped: list, log_path
+    ) -> None:
+        """Replaces the old plain messagebox: same failure/skip/log detail,
+        plus a confetti flourish and a way to share the number -- on social,
+        or anonymously into the public "reclaimed since launch" tally.
+
+        A real completion dialog (Toplevel), not messagebox.showinfo, because
+        messagebox can't hold a Canvas or extra buttons.
+        """
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Done")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+
+        celebrate = reclaimed > 0 and not failures
+        if celebrate:
+            canvas = tk.Canvas(dialog, width=440, height=90, highlightthickness=0)
+            canvas.pack(fill=tk.X)
+            burst = _ConfettiBurst(canvas, 440, 90)
+
+            def animate() -> None:
+                if not dialog.winfo_exists():
+                    return
+                if burst.step(_CONFETTI_FRAME_MS / 1000):
+                    dialog.after(_CONFETTI_FRAME_MS, animate)
+                else:
+                    canvas.delete("all")
+
+            dialog.after(_CONFETTI_FRAME_MS, animate)
+
+        ttk.Label(
+            dialog, text=f"Reclaimed {human(reclaimed)}.", font=("", 14, "bold")
+        ).pack(padx=20, pady=(14 if celebrate else 20, 2), anchor=tk.W)
+        if lifetime_total > reclaimed:
+            ttk.Label(
+                dialog, text=f"{human(lifetime_total)} reclaimed on this machine, lifetime.",
+                foreground="#666666",
+            ).pack(padx=20, anchor=tk.W)
+
+        detail = ""
+        if skipped:
+            detail += "Skipped (Unreal is open there): " + ", ".join(skipped)
+        if failures:
+            if detail:
+                detail += "\n\n"
+            detail += f"Failed (first 8 of {len(failures)}):\n" + "\n".join(failures[:8])
+        if detail:
+            ttk.Label(dialog, text=detail, wraplength=400, justify=tk.LEFT).pack(
+                padx=20, pady=(8, 0), anchor=tk.W
+            )
+        ttk.Label(dialog, text=f"Full log: {log_path}", foreground="#8a8a8a").pack(
+            padx=20, pady=(8, 0), anchor=tk.W
+        )
+
+        if reclaimed > 0:
+            ttk.Separator(dialog, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=20, pady=(14, 10))
+            ttk.Label(dialog, text="Share the space you saved?", font=("", 10, "bold")).pack(
+                padx=20, anchor=tk.W
+            )
+            share_row = ttk.Frame(dialog)
+            share_row.pack(padx=20, pady=(6, 4), anchor=tk.W)
+            amount = human(reclaimed)
+            ttk.Button(
+                share_row, text="Share on 𝕏",
+                command=lambda: webbrowser.open(share_mod.twitter_share_url(amount)),
+            ).pack(side=tk.LEFT)
+            ttk.Button(
+                share_row, text="Share on LinkedIn",
+                command=lambda: webbrowser.open(share_mod.linkedin_share_url()),
+            ).pack(side=tk.LEFT, padx=(8, 0))
+
+            report_status = tk.StringVar(value="")
+            report_row = ttk.Frame(dialog)
+            report_row.pack(padx=20, pady=(2, 4), anchor=tk.W)
+            report_button = ttk.Button(
+                report_row, text="Also count this in our public tally (anonymous)",
+            )
+            report_button.pack(side=tk.LEFT)
+            ttk.Label(report_row, textvariable=report_status, foreground="#3fb950").pack(
+                side=tk.LEFT, padx=(8, 0)
+            )
+
+            def do_report() -> None:
+                report_button.configure(state=tk.DISABLED)
+                report_status.set("Sending…")
+
+                def worker() -> None:
+                    ok = share_mod.report_anonymously(reclaimed)
+                    dialog.after(0, lambda: on_reported(ok))
+
+                def on_reported(ok: bool) -> None:
+                    if not dialog.winfo_exists():
+                        return
+                    report_status.set("Thanks!" if ok else "Couldn't reach it -- no worries.")
+
+                threading.Thread(target=worker, daemon=True).start()
+
+            report_button.configure(command=do_report)
+            ttk.Label(
+                dialog, text="Just the number, nothing that identifies you or your projects.",
+                foreground="#8a8a8a", font=("", 9),
+            ).pack(padx=20, pady=(0, 4), anchor=tk.W)
+
+        ttk.Button(dialog, text="Close", command=dialog.destroy).pack(pady=(10, 16))
+
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
+        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+        dialog.grab_set()
 
 
 def _warn_if_tk_too_old() -> None:

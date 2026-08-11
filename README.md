@@ -152,6 +152,7 @@ Sortable table of every project with its reclaimable size, last-touched date, en
 - **Red / amber / grey rows** — the legend under each table spells it out: red is a candidate to clean, amber is also a candidate but was used within the last 14 days (selecting and cleaning it still works — the amber is a heads-up, not a block), grey means not eligible at all (opted out, already clean, or a real safety refusal — the Status column says which).
 - **Cleaning shows real progress**, not a frozen window. A real run is one to five minutes; it runs on a background thread with a progress bar tracking bytes reclaimed, a "Cancel remaining" button, and a live label naming whatever it's working on right now.
 - **Every clean run writes a full log** to `~/.local/state/unreal-custodian/logs/` (`%LOCALAPPDATA%\unreal-custodian\logs\` on Windows) — every item, every failure, never truncated. The completion dialog only shows the first 8 failures inline; the log has all of them, and its path is in that same dialog.
+- **The completion dialog tracks a lifetime total** on that machine (`~/.local/state/unreal-custodian/stats.json`) and, on a real win, throws a small confetti flourish and offers to share it — pre-filled X/LinkedIn posts (you still have to hit post yourself), or a one-click, fully anonymous "count this in the public tally" report. See [Sharing what you reclaimed](#sharing-what-you-reclaimed) below.
 
 **The GUI needs a Python built with `tkinter` *and Tk 8.6 or newer*.** The CLI has no such requirement and runs on the Python that ships inside Unreal itself (`Engine/Binaries/ThirdParty/Python3/`) — that bundled interpreter has no `tkinter` at all, so it cannot run the GUI either way.
 
@@ -165,6 +166,17 @@ brew install python-tk@3.12
 That installs Tk 9 alongside Python 3.12, and the blank-window bug does not reproduce on it. The `.app` above does this search for you automatically.
 
 **Honest limitation:** double-clicking the `.app` still shows "Python" in the Dock, not "Unreal Custodian" — the window's own title bar is correct, only the Dock badge is affected. Framework Python ships its own tiny bundle (`Python.app`) so Tk can register with the window server, and that bundle re-asserts its own identity to macOS regardless of what launched it or where its binary is copied to; a shell-script wrapper can't override that. The real fix is packaging with `py2app`, which is a separate build step not set up here yet — see `ROADMAP.md`.
+
+## Sharing what you reclaimed
+
+Every real `--apply` run (CLI or GUI) adds to a lifetime total kept locally on that machine (`~/.local/state/unreal-custodian/stats.json`) — nothing is sent anywhere just from running the tool.
+
+Reporting a number to the public "reclaimed since launch" tally at [alexcoulombepresents.com/repos/unreal-custodian](https://www.alexcoulombepresents.com/repos/unreal-custodian) is opt-in, every time:
+
+- **GUI:** the completion dialog has a "Also count this in our public tally (anonymous)" button — nothing is sent until you click it.
+- **CLI:** pass `--report-savings` to `clean --apply`. Omit it (the default) and nothing leaves the machine.
+
+Either way, the only thing ever sent is a byte count — no project names, paths, machine identifiers, or anything else. The endpoint (`app/api/unreal-custodian/space-saved` in the [alexcoulombepresents.com repo](https://github.com/ibrews/alexcoulombepresents)) accepts a number and adds it to one running total; that's the entire request.
 
 ## Automating it
 

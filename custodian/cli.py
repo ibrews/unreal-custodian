@@ -17,6 +17,8 @@ from . import policy as policy_mod
 from . import runlog
 from . import safedelete
 from . import settings as settings_mod
+from . import share as share_mod
+from . import stats as stats_mod
 from .discovery import find_engine_installs, find_projects, index_available
 from .sizing import (
     EngineReport,
@@ -362,6 +364,22 @@ def cmd_clean(args: argparse.Namespace) -> int:
     log_path = log.close()
     if not args.quiet:
         print(f"\nFull log: {log_path}")
+
+    if args.apply and reclaimed > 0:
+        lifetime_total = stats_mod.record_reclaimed(reclaimed)
+        if not args.quiet:
+            print(f"Lifetime total on this machine: {human(lifetime_total)}.")
+        if args.report_savings:
+            ok = share_mod.report_anonymously(reclaimed)
+            if not args.quiet:
+                print(
+                    "Reported to the public tally -- thanks!"
+                    if ok
+                    else "Couldn't reach the public tally this time (no worries, nothing lost)."
+                )
+        elif not args.quiet:
+            print("Add --report-savings to also count this anonymously in the public tally.")
+
     return 0
 
 
@@ -411,6 +429,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--ignore-pressure",
         action="store_true",
         help="clean every eligible project or engine regardless of free space",
+    )
+    clean.add_argument(
+        "--report-savings",
+        action="store_true",
+        help="opt in to anonymously reporting bytes reclaimed to the public "
+             "tally at alexcoulombepresents.com/repos/unreal-custodian (off by default)",
     )
     add_engine_flags(clean)
     clean.set_defaults(func=cmd_clean)
