@@ -1016,8 +1016,10 @@ class CustodianApp:
             frame,
             text=(
                 "No fast file index found -- Custodian is using a slower filesystem "
-                "walk instead of Everything. Installing Everything makes discovery "
-                "near-instant."
+                "walk instead of Everything's index. This needs Everything's "
+                "command-line tool (es.exe) on PATH, not just the Everything app -- "
+                "having Everything installed/running isn't enough by itself. "
+                "Installing es.exe makes discovery near-instant."
             ),
             wraplength=640, justify=tk.LEFT, foreground="#f0883e",
         ).pack(side=tk.TOP, anchor=tk.W)
@@ -1025,7 +1027,7 @@ class CustodianApp:
         row = ttk.Frame(frame)
         row.pack(side=tk.TOP, fill=tk.X, pady=(6, 0))
         link = ttk.Label(
-            row, text="Get Everything →", foreground="#58a6ff",
+            row, text="Get Everything's CLI (es.exe) →", foreground="#58a6ff",
             font=("", 9, "underline"), cursor="hand2",
         )
         link.pack(side=tk.LEFT)
