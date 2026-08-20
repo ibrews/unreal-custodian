@@ -222,8 +222,14 @@ def index_available() -> bool:
     if sys.platform == "darwin":
         return bool(_run(["mdutil", "-s", "/"]))
     if os.name == "nt":
+        # -get-total-file-count is not a real es.exe switch (confirmed against
+        # es.exe 1.1.0.37's own -h output) -- it always errored, so this check
+        # reported no index on every Windows machine regardless of whether
+        # es.exe was installed and working. -get-result-count against an
+        # empty search returns the whole index's size and only succeeds once
+        # Everything has actually loaded its database.
         return _everything_exe() is not None and bool(
-            _run([_everything_exe(), "-get-total-file-count"])
+            _run([_everything_exe(), "", "-get-result-count"])
         )
     return False
 
@@ -367,6 +373,8 @@ def find_engine_installs(roots: list[Path] | None = None) -> list[EngineInstall]
         bases = [Path(r).resolve() for r in engine_roots_restriction]
         found = [p for p in found if _is_within(p, bases)]
 
+    found = [p for p in found if not _is_pruned_path(p)]
+
     for manifest in found:
         # .../<EngineRoot>/Engine/Build/Build.version
         try:
@@ -415,6 +423,42 @@ def _engine_association(uproject: Path) -> str:
     return str(data.get("EngineAssociation") or "not specified")
 
 
+def _is_pruned_path(path: Path) -> bool:
+    """True for a path under a system tree that is never real user data.
+
+    Deliberately narrower than _PRUNE_DIRS: that set also prunes AppData,
+    Windows, and WinSxS purely as a walk *performance* optimization (skip
+    descending into a huge, low-value tree during a slow filesystem walk).
+    Reusing it to filter *index* results would exclude anything genuinely
+    present under AppData -- the exact over-exclusion already fixed once for
+    _EXCLUDE_COMPONENTS just above (its own comment explains why "appdata"
+    was removed from there). This only covers trees an OS index should never
+    hand back as user data at all: the Recycle Bin (any "$"-prefixed
+    segment -- $RECYCLE.BIN, $Recycle.Bin) and System Volume Information.
+    Both are also usually permission-denied, which is what used to crash the
+    whole scan (see _safe_is_file) rather than just skip the one path.
+    """
+    return any(
+        part.startswith("$") or part == "System Volume Information" for part in path.parts
+    )
+
+
+def _safe_is_file(path: Path) -> bool:
+    """Path.is_file(), but a stat this process can't perform means "no".
+
+    A file index can hand back a path this process has no permission to
+    stat -- a Recycle Bin entry, a locked system path, an on-demand cloud
+    placeholder that errors on touch. os.walk's onerror=lambda _: None gives
+    the fallback walk the same tolerance for free; the index path calls
+    .is_file() directly and used to propagate the PermissionError, crashing
+    project discovery entirely instead of just skipping the one path.
+    """
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
 def _is_within(path: Path, bases: list[Path]) -> bool:
     try:
         resolved = path.resolve()
@@ -455,11 +499,13 @@ def find_projects(
         bases = [Path(r).resolve() for r in roots_restriction]
         found = [p for p in found if _is_within(p, bases)]
 
+    found = [p for p in found if not _is_pruned_path(p)]
+
     # Deduplicate by resolved path. A path returned twice by the index is one
     # project, not zero -- last write wins.
     projects: dict[str, Project] = {}
     for uproject in found:
-        if not uproject.is_file() or _is_excluded(uproject, engine_roots):
+        if not _safe_is_file(uproject) or _is_excluded(uproject, engine_roots):
             continue
         key = str(uproject.resolve()).lower()
         projects[key] = Project(

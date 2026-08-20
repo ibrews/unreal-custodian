@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -349,6 +350,104 @@ def test_env_var_still_wins_over_persisted_settings(tmp_path: Path, monkeypatch)
 
     discovery.find_projects(roots=[], engine_installs=[])
     assert seen["*.uproject"] == ["/demo/only"]
+
+
+def test_index_available_uses_a_switch_es_exe_actually_supports(monkeypatch) -> None:
+    """No test ever exercised index_available() -- it shipped calling
+    -get-total-file-count, which is not a real es.exe switch (confirmed
+    against es.exe 1.1.0.37's own -h output: it errors "Unknown switch",
+    exit code 6). _run() only returns output on exit 0, so this silently
+    reported "no index" on every Windows machine, es.exe installed or not,
+    and the GUI's notice never went away no matter what a user did."""
+    if os.name != "nt":
+        pytest.skip("Windows-only code path")
+    seen_cmd = {}
+
+    def fake_run(cmd, **kw):
+        seen_cmd["cmd"] = cmd
+        return "12668641"
+
+    monkeypatch.setattr(discovery, "_everything_exe", lambda: "C:/es.exe")
+    monkeypatch.setattr(discovery, "_run", fake_run)
+    assert discovery.index_available() is True
+    assert "-get-total-file-count" not in seen_cmd["cmd"]
+
+
+def test_index_available_is_false_when_es_exe_errors(monkeypatch) -> None:
+    """The old broken switch always hit this path -- kept as a test so a
+    future switch change can't silently regress back to "always false"."""
+    if os.name != "nt":
+        pytest.skip("Windows-only code path")
+    monkeypatch.setattr(discovery, "_everything_exe", lambda: "C:/es.exe")
+    monkeypatch.setattr(discovery, "_run", lambda cmd, **kw: "")
+    assert discovery.index_available() is False
+
+
+def test_a_permission_denied_index_result_is_skipped_not_fatal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Real case (Fort, 2026-08-20): turning on es.exe made project discovery
+    return *zero* projects instead of speeding it up. Everything indexes the
+    Recycle Bin, so a real machine's index includes a deleted-item stub like
+    $RECYCLE.BIN/.../$I....uproject -- permission-denied by design. is_file()
+    on it raised PermissionError, uncaught, crashing find_projects() outright
+    while 448 real projects sat right there in the same result set."""
+    mine = tmp_path / "MyGame"
+    mine.mkdir()
+    real = mine / "MyGame.uproject"
+    real.write_text("{}", encoding="utf-8")
+
+    denied = tmp_path / "$RECYCLE.BIN" / "S-1-5-21-x" / "$I3OYT5Z.uproject"
+    denied.parent.mkdir(parents=True)
+
+    real_is_file = Path.is_file
+
+    def is_file_denies_recycle_bin(self: Path) -> bool:
+        if "$RECYCLE.BIN" in self.parts:
+            raise PermissionError(5, "Access is denied", str(self))
+        return real_is_file(self)
+
+    monkeypatch.setattr(Path, "is_file", is_file_denies_recycle_bin)
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: [real, denied])
+
+    projects = discovery.find_projects(engine_installs=[])
+    assert [p.name for p in projects] == ["MyGame"]
+
+
+def test_index_result_is_pruned_the_same_as_the_walk_would_prune_it(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The walk already skips $-prefixed dirs and System Volume Information
+    (_walk_search/_PRUNE_DIRS) -- the index path has no walk to prune, so it
+    needs the same exclusion applied to whatever it hands back, independent
+    of whether the path even happens to be stat-able."""
+    real = tmp_path / "MyGame" / "MyGame.uproject"
+    real.parent.mkdir(parents=True)
+    real.write_text("{}", encoding="utf-8")
+
+    svi = tmp_path / "System Volume Information" / "Decoy.uproject"
+    svi.parent.mkdir(parents=True)
+    svi.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: [real, svi])
+    projects = discovery.find_projects(engine_installs=[])
+    assert [p.name for p in projects] == ["MyGame"]
+
+
+def test_prune_filter_does_not_exclude_real_appdata_projects(tmp_path: Path, monkeypatch) -> None:
+    """_PRUNE_DIRS includes AppData/Windows/WinSxS as a *walk-performance*
+    optimization (skip descending into a huge, low-value tree) -- reusing it
+    to filter index results would exclude anything genuinely under AppData,
+    the exact over-exclusion already fixed once for _EXCLUDE_COMPONENTS
+    (pytest's own tmp_path lives under AppData\\Local\\Temp on Windows,
+    which is what caught this while fixing the crash above)."""
+    under_appdata = tmp_path / "AppData" / "Local" / "MyGame" / "MyGame.uproject"
+    under_appdata.parent.mkdir(parents=True)
+    under_appdata.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(discovery, "_index_search", lambda pattern, **kwargs: [under_appdata])
+    projects = discovery.find_projects(engine_installs=[])
+    assert [p.name for p in projects] == ["MyGame"]
 
 
 def test_multi_root_walk_fallback_covers_every_configured_root(
