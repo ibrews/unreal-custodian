@@ -322,8 +322,9 @@ def test_persisted_settings_scope_both_projects_and_engines(tmp_path: Path, monk
 
     discovery.find_engine_installs(roots=[])
     discovery.find_projects(roots=[], engine_installs=[])
-    assert seen["Build.version"] == ["/allowed/one", "/allowed/two"]
-    assert seen["*.uproject"] == ["/allowed/one", "/allowed/two"]
+    expected = [str(Path("/allowed/one")), str(Path("/allowed/two"))]
+    assert seen["Build.version"] == expected
+    assert seen["*.uproject"] == expected
 
 
 def test_env_var_still_wins_over_persisted_settings(tmp_path: Path, monkeypatch) -> None:
