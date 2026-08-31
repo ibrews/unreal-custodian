@@ -114,7 +114,9 @@ python3 -m custodian.cli report --engine-binaries        # editor won't launch u
 
 In an engine install, `Engine/Source` is never a target, and `Engine/Binaries` and `Engine/Intermediate` are refused outright on precompiled installs.
 
-`Saved/Autosaves` is removable but gated at 90 days regardless of your other settings, because after an editor crash it is sometimes the only copy of an hour's work. `Saved/Config` is opt-in, since losing it costs you your editor layout. For C++ projects `Binaries` is kept by default; for Blueprint-only projects it regenerates on open and is reclaimed.
+`Saved/Autosaves` is removable but gated at 90 days regardless of your other settings, because after an editor crash it is sometimes the only copy of an hour's work. `Saved/Config` is opt-in, since losing it costs you your editor layout.
+
+**`Binaries` is opt-in for every project, C++ and Blueprint-only alike.** It used to be reclaimed by default on Blueprint-only projects, on the reasoning that they regenerate when you next open the editor. That is true of a normal project but not universally: **a plugin distributed without a `Source/` folder cannot have its binaries regenerated at all.** Packaging needs build receipts that only a real compile produces, and with no source there is nothing to compile — so for those plugins `Plugins/<name>/Binaries` is unrecoverable output rather than a cache, and removing it can leave a project unbuildable with nothing pointing at why. The risk is lopsided — keeping `Binaries` costs you a rebuild, deleting the wrong one can cost the artifact — so it now sits on the safe side of that trade and waits to be asked. Turn it on per project in `.ueclean.json`, or select it explicitly in the GUI.
 
 ## Per-project configuration
 
