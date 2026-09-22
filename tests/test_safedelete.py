@@ -48,6 +48,33 @@ def test_unreadable_process_list_blocks(tmp_path: Path) -> None:
     assert safedelete.editor_is_running(project, processes=None) is True
 
 
+def test_windows_process_probe_does_not_open_a_console(monkeypatch) -> None:
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return safedelete.subprocess.CompletedProcess(command, 0, stdout="")
+
+    monkeypatch.setattr(safedelete.os, "name", "nt")
+    monkeypatch.setattr(safedelete.subprocess, "run", fake_run)
+
+    assert safedelete._editor_processes() == []
+    assert calls[0][0][0] == "powershell"
+    assert calls[0][1]["creationflags"] == safedelete._CREATE_NO_WINDOW
+
+
+def test_windows_process_probe_failure_still_blocks_cleanup(tmp_path: Path, monkeypatch) -> None:
+    def failed_run(command, **kwargs):
+        return safedelete.subprocess.CompletedProcess(command, 1, stdout="")
+
+    monkeypatch.setattr(safedelete.os, "name", "nt")
+    monkeypatch.setattr(safedelete.subprocess, "run", failed_run)
+
+    processes = safedelete._editor_processes()
+    assert processes is None
+    assert safedelete.editor_is_running(tmp_path, processes=processes) is True
+
+
 def test_helper_processes_are_not_editors() -> None:
     """The long-lived Unreal helpers hold no project open."""
     for helper in (

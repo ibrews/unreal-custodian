@@ -161,6 +161,10 @@ _EDITOR_EXE = re.compile(
     re.IGNORECASE,
 )
 
+# A windowless PyInstaller GUI still gets a visible console when it starts a
+# console program unless Windows is told not to create one for the child.
+_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
 
 def _editor_processes() -> list[str] | None:
     """Command lines of running Unreal *editor* processes.
@@ -180,6 +184,7 @@ def _editor_processes() -> list[str] | None:
             capture_output=True,
             text=True,
             errors="replace",
+            creationflags=_CREATE_NO_WINDOW,
         )
         if proc.returncode != 0:
             return None
